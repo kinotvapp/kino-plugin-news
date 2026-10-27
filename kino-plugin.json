@@ -1,0 +1,115 @@
+{
+  "id": "news",
+  "name": "Solo noticias",
+  "version": "1.0.0",
+  "apiVersion": 14,
+  "entry": "plugin.js",
+  "description": "Noticias de las películas y series que viste y de tus temas, en tarjetas, desde Google Noticias. Actualización automática e IA opcionales. No oficial: sin relación con Google. (News about what you watched and your own topics, from Google News. Unofficial: not affiliated with Google.)",
+  "author": "kinotvapp",
+  "homepage": "https://github.com/kinotvapp/kino-plugin-news",
+  "icon": "icon.png",
+  "color": "#E50914",
+  "categories": [
+    "utilities"
+  ],
+  "hosts": [
+    "news.google.com"
+  ],
+  "fetchHosts": "any",
+  "capabilities": [
+    "screen",
+    "library",
+    "schedule",
+    "shared",
+    "ai"
+  ],
+  "jobs": [
+    {
+      "id": "refresh",
+      "label": {
+        "es": "Actualizar las noticias",
+        "en": "Refresh the news"
+      },
+      "everyMin": 60,
+      "everyOptions": [
+        15,
+        30,
+        60,
+        180,
+        720,
+        1440
+      ],
+      "runOn": "preferPhone"
+    }
+  ],
+  "screen": {
+    "label": "Noticias",
+    "labelEn": "News",
+    "icon": "list",
+    "menuOpens": "screen"
+  },
+  "settings": [
+    {
+      "key": "loadMedia",
+      "label": "Imágenes y textos de los medios",
+      "labelEn": "Pictures and texts from the outlets",
+      "type": "toggle",
+      "default": true,
+      "hint": "Tu aparato abre la página de cada noticia en el sitio del medio",
+      "hintEn": "Your device opens each story's page on the outlet's site"
+    },
+    {
+      "key": "useAi",
+      "label": "Clasificar con IA",
+      "labelEn": "Sort with AI",
+      "type": "toggle",
+      "default": false,
+      "hint": "Los titulares se envían al servicio de IA de terceros de Kino",
+      "hintEn": "The headlines go to Kino's third-party AI service"
+    },
+    {
+      "key": "useLibrary",
+      "label": "Usar lo que he visto",
+      "labelEn": "Use what I watched",
+      "type": "toggle",
+      "default": false,
+      "hint": "Los títulos que viste se envían a Google Noticias como búsquedas",
+      "hintEn": "The titles you watched are sent to Google News as searches"
+    },
+    {
+      "key": "sampleLibrary",
+      "label": "Títulos de ejemplo",
+      "labelEn": "Sample titles",
+      "type": "toggle",
+      "default": false,
+      "hint": "Avatar, Breaking Bad, Dune… como si los hubieras visto",
+      "hintEn": "Avatar, Breaking Bad, Dune… as if you had watched them"
+    },
+    {
+      "key": "libraryCount",
+      "label": "Títulos recientes (1 a 50)",
+      "labelEn": "Recent titles (1 to 50)",
+      "type": "text",
+      "default": "5"
+    },
+    {
+      "key": "terms",
+      "label": "Tus términos",
+      "labelEn": "Your terms",
+      "type": "list",
+      "max": 50,
+      "fields": [
+        {
+          "key": "term",
+          "type": "text",
+          "label": "Término",
+          "labelEn": "Term"
+        }
+      ]
+    }
+  ],
+  "signature": {
+    "authorKey": "82b87b938e0a95b142467c815a8823cb54310a13a828c3c4c77b1eda43294ae6",
+    "value": "88b5f2badb96f926c6a89fce2f2ce61309992bf635aec845a902681cf38580065dc117f9b94ad9da9fdab02e87c62e4d038f685cb90eb0cec545f2386f68600d"
+  }
+}

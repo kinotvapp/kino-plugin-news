@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- A: a news page whose left edge is a film strip, with a headline and a play button -->
+  <rect width="512" height="512" rx="112" fill="#0D0D0D"/>
+  <rect x="112" y="88" width="304" height="336" rx="30" fill="#FFFFFF"/>
+  <rect x="88" y="88" width="88" height="336" rx="26" fill="#E50914"/>
+  <rect x="116" y="118" width="32" height="32" rx="7" fill="#0D0D0D"/>
+  <rect x="116" y="190" width="32" height="32" rx="7" fill="#0D0D0D"/>
+  <rect x="116" y="262" width="32" height="32" rx="7" fill="#0D0D0D"/>
+  <rect x="116" y="334" width="32" height="32" rx="7" fill="#0D0D0D"/>
+  <rect x="208" y="128" width="176" height="44" rx="12" fill="#0D0D0D"/>
+  <rect x="208" y="196" width="128" height="26" rx="10" fill="#0D0D0D"/>
+  <path d="M244 252 L244 380 L352 316 Z" fill="#E50914" stroke="#E50914" stroke-width="20" stroke-linejoin="round"/>
+</svg>
