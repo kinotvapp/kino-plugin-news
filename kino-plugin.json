@@ -1,7 +1,7 @@
 {
   "id": "news",
   "name": "Solo noticias",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "apiVersion": 14,
   "entry": "plugin.js",
   "description": "Noticias de las películas y series que viste y de tus temas, en tarjetas, desde Google Noticias. Actualización automática e IA opcionales. No oficial: sin relación con Google. (News about what you watched and your own topics, from Google News. Unofficial: not affiliated with Google.)",
@@ -111,6 +111,6 @@
   ],
   "signature": {
     "authorKey": "82b87b938e0a95b142467c815a8823cb54310a13a828c3c4c77b1eda43294ae6",
-    "value": "a35a6d04813d476775bcc0f76998b942a4ad00c2ca9a4041ac96c31bd5e6b778d97c8814acb4d0610d7f9ebd7997fbda64f9444c9b75d8523ceb6de49b456700"
+    "value": "0249201079e5d50319f1f54dcf589b9bbdade50945551bd0d5f4b4b54409fb6808a8ed44278d91c0720409f3c3dcf09c2e6e4a74efee735189b934888a29ae05"
   }
 }

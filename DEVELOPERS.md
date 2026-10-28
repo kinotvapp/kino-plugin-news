@@ -5,28 +5,37 @@ How the plugin works inside, how to test it and how a new version is made. The p
 
 ## Where the code comes from
 
-`plugin.js` and `test/` are kept in sync with the `screen-news` example of Kino's plugin guide, where the screen
-widgets this plugin uses are developed. Kino's repository is the source of truth for the code; this repository owns the
-publishing metadata (`id`, `name`, `version`, `description`, `homepage`, `icon`, `color`, `categories`, `signature`)
-and the documents. To bring a newer example in:
+The code lives in `src/` (one file per responsibility; `src/plugin.js` only re-exports) and `npm run build` bundles it
+with esbuild into `plugin.js`, the one file Kino installs (the manifest's `entry`). `plugin.js` is generated, committed
+and signed: never edit it by hand. "How the code is organized" below (synced from the example) says which folder owns
+what.
+
+`src/`, `plugin.js` and `test/` are kept in sync with the `screen-news` example of Kino's plugin guide. Kino's repository
+is the source of truth for the code; this repository owns the publishing metadata (`id`, `name`, `version`,
+`description`, `author`, `homepage`, `icon`, `color`, `categories`, `signature`) and the documents. To bring a newer
+example in:
 
 ```sh
 node scripts/sync-from-example.mjs <kino>/docs/plugins/examples/screen-news --dry-run   # what would change
 node scripts/sync-from-example.mjs <kino>/docs/plugins/examples/screen-news
 ```
 
-It copies `plugin.js` (only its first comment line changes), mirrors `test/` with the kit imports pointed at `sdk/`,
-takes the manifest's working fields (`apiVersion`, `hosts`, `fetchHosts`, `capabilities`, `jobs`, `screen`,
-`settings`...) and never the ones listed above, refreshes the Node kit (`sdk/`, `contract.json`, `kino.d.ts`) from the
-same Kino checkout (`--no-kit` to skip), and rewrites the section below. When the code or a working field changed it
+It mirrors `src/` (only the entry's first comment line changes), copies the generated `plugin.js` as the example built it
+(the same bytes: `npm run check:built` proves it here), `scripts/build.mjs` and the build part of `package.json` (the
+`build` and `check:built` scripts, esbuild), mirrors `test/` with the kit imports pointed at `sdk/`, takes the manifest's
+working fields and never the ones listed above, refreshes the Node kit (`sdk/`, `contract.json`, `kino.d.ts`) from the
+same Kino checkout (`--no-kit` to skip), and rewrites the section below. When `plugin.js` or a working field changed it
 drops the stale `signature` and tells you what comes next.
 
 ## Testing and signing
 
 ```sh
-npm test            # node --test test/*.test.mjs: the kit's sandbox, fixtures, a fake clock and a fake AI; no network
-npm run validate    # node sdk/validate.mjs . --repo kinotvapp/kino-plugin-news
-npm run sign        # signs plugin.js with the author key (~/.config/kino/kino-author-key.pem, or $KINO_AUTHOR_KEY)
+npm install          # once: esbuild (node_modules/ is ignored)
+npm run build        # src/ -> plugin.js, deterministic: the same sources give the same bytes
+npm run check:built  # fails when plugin.js is not exactly what src/ builds to
+npm test             # node --test test/*.test.mjs: the built plugin.js in the kit's sandbox, plus the check above; no network
+npm run validate     # node sdk/validate.mjs . --repo kinotvapp/kino-plugin-news
+npm run sign         # signs plugin.js with the author key (~/.config/kino/kino-author-key.pem, or $KINO_AUTHOR_KEY)
 ```
 
 Try it by hand with the kit (it reaches the real Google News):
@@ -37,14 +46,21 @@ node sdk/run.mjs --device tv . screen
 node sdk/run.mjs . shared
 ```
 
-A new version: sync (or change the code), raise `version` in `kino-plugin.json`, add a `CHANGELOG.md` entry, `npm test`,
-`npm run sign`, `npm run validate`, commit and push. Every change to `plugin.js` or to `version` needs a new signature,
-always with the same key: Kino refuses an update signed by another one.
+A new version, step by step:
+
+1. Change the code in `src/` (or sync it from the example, above). Never edit `plugin.js` by hand.
+2. `npm run build`, then `npm run check:built` and `npm test`.
+3. Raise `version` in `kino-plugin.json` and add a `CHANGELOG.md` entry.
+4. `npm run sign`, then `npm run validate` (it checks the signature too).
+5. Commit `src/`, `plugin.js`, `kino-plugin.json` and `CHANGELOG.md` together, then push.
+
+Every change to `plugin.js` or to `version` needs a new signature, always with the same key: Kino refuses an update
+signed by another one.
 
 ## How it works
 
 <!-- sync:begin example-readme -->
-_Synced by `scripts/sync-from-example.mjs` from `docs/plugins/examples/screen-news` in Kino's repository at `c8632a6e1`. Do not edit by hand: change the example and sync again._
+_Synced by `scripts/sync-from-example.mjs` from `docs/plugins/examples/screen-news` in Kino's repository at `efddb7278`. Do not edit by hand: change the example and sync again._
 
 ### Where the news come from
 
@@ -125,4 +141,41 @@ Everything is read and written through one small cache adapter (`makeSharedCache
 this device as the fallback when kino.shared is missing or refuses. What it reads is checked like outside input
 (another device, maybe another version of this plugin, wrote it). The article texts and the watched titles read last stay
 in kino.storage on each device.
+
+### How the code is organized
+
+The code people read lives in `src/`, one small file per responsibility. Kino installs ONE file, `plugin.js` (the
+manifest's `entry`), so `npm run build` bundles `src/` into it with [esbuild](https://esbuild.github.io/): one readable
+ES module (not minified) with the same named exports, starting with a line that says it is generated. `plugin.js` stays
+committed (Kino installs it straight from the repository, and the signature covers its bytes); **never edit it by hand**:
+edit `src/`, then `npm run build`. `npm run check:built` (and the test `test/built.test.mjs`) fails when `plugin.js` is
+not exactly what `src/` builds to.
+
+```text
+src/
+  plugin.js        the entry: only re-exports the public surface (what Kino calls and what the tests use)
+  limits.js        limits and pacing: terms, stories, cards, sizes read, refresh frequencies, the work budget
+  util/            html.js (entities, tags), time.js (RSS dates, «hace 2 h»), text.js (folding, a term), values.js
+  feed/            google-news.js: the editions, the RSS address, the article links, the feed's items
+  store/           cache.js (kino.shared with kino.storage as fallback, the keys), stories.js (the stored story)
+  terms/           terms.js (terms to queries, batches), watched.js (what the person watched as terms)
+  filter/          adult.js: the 18+ filter
+  categories/      categories.js: the keyword guess and Kino's text AI
+  article/         page.js (the outlet's address, picture, description), text.js (a story's text),
+                   read-story.js (what the pop-up shows, read on a tap)
+  work/            schedule.js, stages.js, step.js (`step`, the budgeted work queue), manual.js («Actualizar ahora»)
+  state/           load.js: the settings, the library and the storage as `step` and the screen read them
+  ui/              samples.js, format.js, cards.js, story-popup.js, news-tab.js, settings-tab.js, header.js
+  exports/         job.js (`job`), screen.js (`screen`), screen-event.js (`screenEvent`)
+```
+
+Imports only go one way (util and limits, then the pure readers, then work and state, then ui, then exports): there is
+no import cycle. Each file starts with a comment that says what it owns.
+
+```sh
+npm install          # once: esbuild
+npm run build        # src/ -> plugin.js
+npm test             # the tests run the built plugin.js in the kit's sandbox, and check it is built from src/
+npm run check:built  # plugin.js is exactly what src/ builds to
+```
 <!-- sync:end example-readme -->

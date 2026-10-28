@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2
+
+- `plugin.js` is now generated from `src/`, same behaviour: the code is split into small files by responsibility under `src/` and `npm run build` (esbuild) bundles them into the one file Kino installs. `npm run check:built` proves the shipped file is built from the source.
+
 ## 1.0.1
 
 - **Hide 18+ news** is now locked with Kino's parental control code: switching it off asks for the code (Kino's own

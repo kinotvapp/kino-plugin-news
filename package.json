@@ -5,9 +5,14 @@
   "description": "Kino plugin Solo noticias (Just News): a Google News feed about what you watched and your own topics, on a screen of its own.",
   "license": "Apache-2.0",
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "check:built": "node scripts/build.mjs --check",
     "test": "node --test test/*.test.mjs",
     "validate": "node sdk/validate.mjs . --repo kinotvapp/kino-plugin-news",
     "sign": "node scripts/sign.mjs",
     "sync": "node scripts/sync-from-example.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.0"
   }
 }

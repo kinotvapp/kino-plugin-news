@@ -127,6 +127,47 @@ noticia** se queda con el enlace de Google.
 - **El extracto es corto o está cortado**: se lee de la página del medio y puede salir incompleto (sitios de pago).
   **Ver noticia** abre la noticia completa.
 
+## Cómo está organizado el código
+
+El código que se lee vive en `src/`, un archivo pequeño por responsabilidad. Kino instala UN archivo, `plugin.js` (el
+`entry` del manifiesto), así que `npm run build` empaca `src/` en él con [esbuild](https://esbuild.github.io/): un solo
+módulo ES legible (sin minificar) con las mismas exportaciones, que empieza con una línea que dice que es generado.
+`plugin.js` sigue en el repositorio (Kino lo instala directo de ahí y la firma cubre sus bytes); **nunca lo edites a mano**:
+edita `src/` y corre `npm run build`. `npm run check:built` (y la prueba `test/built.test.mjs`) falla cuando `plugin.js`
+no es exactamente lo que sale de `src/`.
+
+```text
+src/
+  plugin.js        la entrada: solo reexporta la superficie pública (lo que Kino llama y lo que usan las pruebas)
+  limits.js        límites y ritmo: términos, noticias, tarjetas, tamaños, frecuencias, el presupuesto del trabajo
+  util/            html.js (entidades, etiquetas), time.js (fechas RSS, «hace 2 h»), text.js, values.js
+  feed/            google-news.js: las ediciones, la dirección RSS, los enlaces de artículos, los ítems del feed
+  store/           cache.js (kino.shared con kino.storage de respaldo, las claves), stories.js (la noticia guardada)
+  terms/           terms.js (términos a consultas, en tandas), watched.js (lo que la persona vio como términos)
+  filter/          adult.js: el filtro +18
+  categories/      categories.js: la suposición por palabras clave y la IA de texto de Kino
+  article/         page.js (la dirección del medio, su imagen y descripción), text.js (el texto de una noticia),
+                   read-story.js (lo que muestra la ventana, leído con un toque)
+  work/            schedule.js, stages.js, step.js (`step`, la cola de trabajo con presupuesto), manual.js
+  state/           load.js: los ajustes, la biblioteca y el almacenamiento como los leen `step` y la pantalla
+  ui/              samples.js, format.js, cards.js, story-popup.js, news-tab.js, settings-tab.js, header.js
+  exports/         job.js (`job`), screen.js (`screen`), screen-event.js (`screenEvent`)
+```
+
+Las importaciones van en un solo sentido (util y limits, luego los lectores puros, luego work y state, luego ui, luego
+exports): no hay ciclos. Cada archivo empieza con un comentario que dice de qué se encarga.
+
+```sh
+npm install          # una vez: esbuild
+npm run build        # src/ -> plugin.js (nunca edites plugin.js a mano)
+npm run check:built  # plugin.js es exactamente lo que sale de src/
+npm test             # el plugin.js generado en la caja de arena del kit, y la revisión de arriba
+npm run validate     # lo que diría Kino al instalarlo
+npm run sign         # después de cada build que cambió plugin.js (la llave del autor, nunca en este repositorio)
+```
+
+El flujo completo está en [DEVELOPERS.md](DEVELOPERS.md) (en inglés).
+
 ## Licencia
 
 [Apache License 2.0](LICENSE). Ver [NOTICE](NOTICE).
