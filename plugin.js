@@ -391,13 +391,16 @@ export function watchedRoom(libraryCount, customCount) {
 /**
  * Every search term of the feed: `[{ term, from: "term" | "watched" }]`, the person's own first, then (only when
  * [useLibrary] is on) the most recent watched [titles] not [excluded], as many as fit (50 in all). None means top stories.
+ * With [hideAdult] (the default) a term or watched title that looks 18+ (`isAdult`) is left out: Google is never asked for it.
  */
-export function buildTerms({ terms = [], titles = [], excluded = [], useLibrary = false, libraryCount = 5 } = {}) {
+export function buildTerms({ terms = [], titles = [], excluded = [], useLibrary = false, libraryCount = 5, hideAdult = true } = {}) {
   const out = [];
-  const own = cleanTerms(terms);
+  const hide = hideAdult !== false;
+  const own = cleanTerms(terms).filter((t) => !(hide && isAdult(t)));
   for (const t of own) out.push({ term: t, from: "term" });
   if (useLibrary) {
-    for (const w of watchedTitles(validWatched(titles), watchedRoom(libraryCount, own.length), [...(Array.isArray(excluded) ? excluded : []), ...own])) {
+    const usable = validWatched(titles).filter((w) => !(hide && isAdult(w.title)));
+    for (const w of watchedTitles(usable, watchedRoom(libraryCount, own.length), [...(Array.isArray(excluded) ? excluded : []), ...own])) {
       out.push({ term: w.title, from: "watched", kind: w.kind });
     }
   }
@@ -488,6 +491,78 @@ const fold = (s) => {
   return t;
 };
 
+// ---------- the 18+ filter: a basic word list, on by default ----------
+//
+// Conservative on purpose: whole words and phrases (accents and case aside, punctuation as a space), in Spanish, English,
+// Portuguese and French, plus the names of well-known adult sites and their domains. "sex" alone, "adult" alone, "erótico"
+// alone, "escort" alone (a Ford Escort, a convoy's escort) and "XXX" after "Super Bowl" are NOT matched: the screen's own
+// caption says it is a basic filter that may miss things.
+
+/** Whole words (after folding) that mark a text as 18+. */
+const ADULT_WORDS = [
+  "porn", "porno", "pornos", "xxx", "nsfw", "+18", "18+", "hentai", "milf", "milfs", "bdsm", "sextape", "sextapes", "nudes",
+  "camgirl", "camgirls", "striptease", "onlyfans", "fansly", "pornhub", "xvideos", "xnxx", "xhamster", "redtube", "youporn",
+  "brazzers", "chaturbate", "stripchat", "spankbang", "livejasmin", "eporner", "prostitucion", "prostitution", "prostituicao",
+  "prostituta", "prostitutas", "prostitute", "prostitutes", "prostituee", "prostituees", "orgia", "orgias", "orgy", "orgies",
+  "masturbacion", "masturbation", "masturbacao",
+];
+/** Word starts (after folding) that mark a text as 18+: pornografía, pornographie, pornography, pornstar. */
+const ADULT_STEMS = ["pornograf", "pornograph", "pornstar"];
+/** Phrases (after folding, words separated by one space) that mark a text as 18+. */
+const ADULT_PHRASES = [
+  "sex tape", "sex tapes", "sex video", "sex videos", "video sexual", "videos sexuales", "video porno", "videos porno",
+  "explicit sex", "sexually explicit", "sexo explicito", "sexe explicite", "contenido sexual explicito", "contenido para adultos",
+  "contenido adulto", "adult content", "adult film", "adult films", "adult movie", "adult movies", "adult video", "adult videos",
+  "adult site", "adult sites", "adult website", "adult entertainment", "adult star", "adult actress", "adult actor",
+  "actriz porno", "actor porno", "cine para adultos", "pelicula para adultos", "peliculas para adultos", "erotico explicito",
+  "erotica explicita", "escort service", "escort services", "escort agency", "escort girl", "escort girls", "escort de lujo",
+  "escorts de lujo", "servicio de escort", "servicio de escorts", "servicios de escort", "servicios de escorts",
+  "garota de programa", "garotas de programa", "filme adulto", "filmes adultos", "film pour adultes", "films pour adultes",
+  "film porno", "strip club", "strip clubs", "club de striptease", "oral sex", "anal sex", "sexo oral", "sexo anal",
+  "sexe oral", "sexe anal",
+];
+/** Well-known adult sites: a story whose outlet address is on one of them (or a subdomain) is dropped. */
+export const ADULT_DOMAINS = [
+  "pornhub.com", "xvideos.com", "xnxx.com", "xhamster.com", "redtube.com", "youporn.com", "onlyfans.com", "fansly.com",
+  "chaturbate.com", "stripchat.com", "brazzers.com", "spankbang.com", "beeg.com", "eporner.com", "livejasmin.com",
+  "cam4.com", "motherless.com", "tnaflix.com",
+];
+
+/** [text] folded for the filter: lowercase, no accents, anything but letters, digits and "+" as one space, padded. */
+function adultText(text) {
+  // A percentage ("+18 %") is a number, not an age mark.
+  const t = fold(text).replace(/[+-]?\d+(?:[.,]\d+)?\s?%/g, " ").replace(/[^a-z0-9+]+/g, " ").replace(/\b(adult[oa]s) mayores\b/g, "mayores").replace(/\s+/g, " ").trim();
+  return " " + t + " ";
+}
+
+/** True when [text] (a title, a source's name, a description, a search term) looks 18+ by the word lists. Pure. */
+export function isAdult(text) {
+  if (typeof text !== "string" || !text.trim()) return false;
+  const t = adultText(text);
+  for (const w of ADULT_WORDS) {
+    if (!t.includes(" " + w + " ")) continue;
+    if (w === "xxx" && /( bowl| olimpiadas?| olympics?| edicion| edition) xxx /.test(t) && t.split(" xxx ").length === 2) continue;
+    return true;
+  }
+  if (ADULT_STEMS.some((w) => t.includes(" " + w))) return true;
+  return ADULT_PHRASES.some((ph) => t.includes(" " + ph + " "));
+}
+
+/** True when [url]'s host is one of ADULT_DOMAINS or under one. Pure. */
+export function isAdultUrl(url) {
+  const m = /^https?:\/\/([^/?#:]+)/i.exec(String(url || ""));
+  if (!m) return false;
+  const host = m[1].toLowerCase().replace(/\.$/, "");
+  return ADULT_DOMAINS.some((d) => host === d || host.endsWith("." + d));
+}
+
+/** A stored record (or a card) that the 18+ filter drops: its title, source, description or outlet, or the AI's "adult". */
+export function adultRecord(r) {
+  if (!isObj(r)) return false;
+  return r.c === "adult" || isAdult(r.t !== undefined ? r.t : r.title) || isAdult(r.s !== undefined ? r.s : r.source) ||
+    isAdult(r.d !== undefined ? r.d : r.desc) || isAdultUrl(r.u !== undefined ? r.u : r.url);
+}
+
 /**
  * The term (`{ term, from }`) whose words all appear in [title], accents and case aside: the most specific (most words)
  * when several do, so a story about "Avatar: The Last Airbender" names the series, not the movie "Avatar"; else null.
@@ -558,11 +633,13 @@ export function validStories(raw) {
  * record and its data; the same title from another outlet counts once), newest first, the newest [max] kept; the rest is
  * dropped with everything known about it.
  */
-export function mergeWindow(stored, lists, max = MAX_STORIES) {
+export function mergeWindow(stored, lists, max = MAX_STORIES, hideAdult = true) {
   const byId = new Map(stored.map((x) => [x.id, x]));
   const titles = new Set(stored.map((x) => x.t.toLowerCase().replace(/\s+/g, " ")));
-  const out = [...stored];
+  const out = hideAdult === false ? [...stored] : stored.filter((x) => !adultRecord(x));
   for (const item of lists.flat()) {
+    // With the 18+ filter on, an adult headline, source or outlet never enters the window (nor the cache, nor the counts).
+    if (hideAdult !== false && (isAdult(item.title) || isAdult(item.source) || isAdultUrl(item.url))) continue;
     const id = storyId(item.link);
     const t = item.title.toLowerCase().replace(/\s+/g, " ");
     if (byId.has(id) || titles.has(t)) continue;
@@ -622,11 +699,13 @@ export function guessCategory(title) {
  * The question for the AI: `{ system, prompt }` with only `[{ id, title }]` (at most [max], titles at most 200 characters)
  * and the fixed category list; the answer must be JSON only, `[{ id, category }]`.
  */
-export function buildCategoryPrompt(stories, max = 40) {
+export function buildCategoryPrompt(stories, max = 40, hideAdult = true) {
   const items = stories.slice(0, max).map((s) => ({ id: String(s.id), title: String(s.t !== undefined ? s.t : s.title).slice(0, 200) }));
+  const keys = hideAdult === false ? CATEGORY_KEYS : [...CATEGORY_KEYS, "adult"];
   return {
     system: "You classify news headlines. Answer with JSON only: an array of {\"id\": string, \"category\": string}, one per headline, " +
-      "using exactly one of these categories: " + CATEGORY_KEYS.join(", ") + ". Use \"other\" when none fits. No prose, no code fences.",
+      "using exactly one of these categories: " + keys.join(", ") + ". Use \"other\" when none fits." +
+      (hideAdult === false ? "" : " Use \"adult\" for sexual, pornographic or otherwise 18+ content.") + " No prose, no code fences.",
     prompt: JSON.stringify(items),
   };
 }
@@ -635,7 +714,7 @@ export function buildCategoryPrompt(stories, max = 40) {
  * The AI's answer read strictly: `{ [id]: category }` for the ids of [stories] only and known categories only (an unknown
  * one becomes "other"). JSON inside prose or code fences is found; anything unreadable gives `{}`. Never throws.
  */
-export function parseCategories(text, stories) {
+export function parseCategories(text, stories, allowAdult = false) {
   const ids = new Set(stories.map((s) => String(s.id)));
   const s = String(text || "");
   const start = s.indexOf("[");
@@ -647,7 +726,7 @@ export function parseCategories(text, stories) {
   for (const r of Array.isArray(rows) ? rows : []) {
     if (!isObj(r) || typeof r.id !== "string" || !ids.has(r.id) || out[r.id]) continue;
     const c = typeof r.category === "string" ? r.category.trim().toLowerCase() : "";
-    out[r.id] = CATEGORY_KEYS.includes(c) ? c : "other";
+    out[r.id] = CATEGORY_KEYS.includes(c) || (allowAdult && c === "adult") ? c : "other";
   }
   return out;
 }
@@ -868,12 +947,13 @@ async function resolveArticle(u, link, edition) {
  * answered for get its category (or "other" when it skipped one); without an answer the guesses stay and they are asked
  * again an hour later. Answers how many it categorized.
  */
-async function askCategories(batch, ask, b, u, now) {
-  const q = buildCategoryPrompt(batch, b.batch);
+async function askCategories(batch, ask, b, u, now, hideAdult = true) {
+  const q = buildCategoryPrompt(batch, b.batch, hideAdult);
   u.fetches++;
   let answer = null;
   try { answer = await ask(q.prompt, q.system); } catch (e) { answer = null; }
-  const got = answer === null ? {} : parseCategories(answer, batch);
+  // "adult" only with the filter on: those records are dropped at the next save, never shown as a category.
+  const got = answer === null ? {} : parseCategories(answer, batch, hideAdult !== false);
   for (const rec of batch) {
     rec.q = now;
     if (answer !== null) { rec.c = got[rec.id] || "other"; rec.a = 1; }
@@ -885,13 +965,15 @@ async function askCategories(batch, ask, b, u, now) {
  * Only the AI stage, for the person's «Clasificar ahora»: one question about the first stories the AI has not sorted yet
  * (the hour's wait for a refused or failed ask does not apply: the person asked). Answers `{ stories, done }`.
  */
-export async function classifyNow(cache, clock, budget = budgetFor("phone"), ask = askAi) {
+export async function classifyNow(cache, clock, budget = budgetFor("phone"), ask = askAi, hideAdult = true) {
   const b = { ...budgetFor("phone"), ...(budget || {}) };
-  const stories = validStories(cache.get(KEYS.stories));
+  let stories = validStories(cache.get(KEYS.stories));
+  if (hideAdult !== false) stories = stories.filter((x) => !adultRecord(x));
   const batch = stories.slice(0, b.aiFirst).filter((x) => x.a !== 1).slice(0, b.batch);
   if (!batch.length || typeof ask !== "function") return { stories, done: 0 };
   const u = budgeted(() => Promise.reject(new Error("no requests here")), b, clock);
-  const done = await askCategories(batch, ask, b, u, clock.now());
+  const done = await askCategories(batch, ask, b, u, clock.now(), hideAdult);
+  if (hideAdult !== false) stories = stories.filter((x) => !adultRecord(x));
   cache.set(KEYS.stories, fitSize(stories));
   const workRaw = cache.get(KEYS.work);
   cache.set(KEYS.work, { turn: isObj(workRaw) && Number.isFinite(workRaw.turn) ? workRaw.turn : 0, lastAsk: clock.now() });
@@ -902,14 +984,17 @@ export async function step(cache, fetch, settings, clock, budget = budgetFor("ph
   const s = settings || {};
   const b = { ...budgetFor("phone"), ...(budget || {}) };
   const edition = EDITIONS[s.edition] ? s.edition : "co";
-  const terms = buildTerms(s);
-  const key = feedKeyOf(edition, terms);
+  // The 18+ filter is on unless the person switched it off; a feed read with it off has a key of its own.
+  const hide = s.hideAdult !== false;
+  const terms = buildTerms({ ...s, hideAdult: hide });
+  const key = feedKeyOf(edition, terms) + (hide ? "" : "|18+");
   const u = budgeted(fetch, b, clock);
   const now = clock.now();
   const feedRaw = cache.get(KEYS.feed);
   const feed = isObj(feedRaw) && typeof feedRaw.key === "string" ? feedRaw : null;
   const sameTerms = !!feed && feed.key === key;
   let stories = sameTerms ? validStories(cache.get(KEYS.stories)) : [];
+  if (hide) stories = stories.filter((x) => !adultRecord(x));
   let fetchedAt = sameTerms && Number.isFinite(feed.fetchedAt) ? feed.fetchedAt : 0;
   const workRaw = cache.get(KEYS.work);
   const work = { turn: isObj(workRaw) && Number.isFinite(workRaw.turn) ? workRaw.turn : 0, lastAsk: isObj(workRaw) ? time(workRaw.lastAsk) : 0 };
@@ -918,6 +1003,7 @@ export async function step(cache, fetch, settings, clock, budget = budgetFor("ph
   const done = { resolve: 0, meta: 0, categorize: 0 };
   // What is found is stored at once, after the feed and after each stage: a run Kino cuts keeps everything before it.
   const save = () => {
+    if (hide) stories = stories.filter((x) => !adultRecord(x));
     stories = fitSize(stories);
     cache.set(KEYS.stories, stories);
     cache.set(KEYS.work, work);
@@ -936,7 +1022,7 @@ export async function step(cache, fetch, settings, clock, budget = budgetFor("ph
       } catch (e) { /* this search failed: the others still count */ }
     }
     if (lists.length) {
-      stories = mergeWindow(stories, lists);
+      stories = mergeWindow(stories, lists, MAX_STORIES, hide);
       fetchedAt = now;
       changed = true;
       cache.set(KEYS.feed, { key, fetchedAt, cursor: next, batches: all.length });
@@ -959,6 +1045,8 @@ export async function step(cache, fetch, settings, clock, budget = budgetFor("ph
           const url = local || (await resolveArticle(u, rec.g, edition));
           rec.r = now;
           if (url && /^https:/i.test(url)) { rec.u = url.slice(0, 1000); rec.g = null; }
+          // An adult outlet: the record is dropped at the next save, its page never read.
+          if (hide && isAdultUrl(rec.u)) rec.c = "adult";
         } catch (e) {
           if (e && e.budget) break;
           rec.r = now;
@@ -968,6 +1056,7 @@ export async function step(cache, fetch, settings, clock, budget = budgetFor("ph
     } else if (stage === "meta") {
       for (const rec of todo.meta) {
         if (!u.canFetch(READ_BYTES.head) || !rec.u) break;
+        if (hide && adultRecord(rec)) continue;
         try {
           // stopAt (Task 8u): Kino stops reading at the end of the head, so a server that ignores Range costs only the head.
           const page = await u.fetch(rec.u, { headers: { Range: "bytes=0-65535", Accept: "text/html" }, maxBytes: READ_BYTES.head, stopAt: "</head>", timeoutMs: PAGE_TIMEOUT_MS });
@@ -986,7 +1075,7 @@ export async function step(cache, fetch, settings, clock, budget = budgetFor("ph
         done.meta++;
       }
     } else if (typeof ask === "function" && todo.categorize.length && now - work.lastAsk >= b.askGapMs && u.canFetch(0)) {
-      done.categorize = await askCategories(todo.categorize, ask, b, u, now);
+      done.categorize = await askCategories(todo.categorize.filter((x) => !(hide && adultRecord(x))), ask, b, u, now, hide);
       work.lastAsk = now;
     }
     save();
@@ -1124,19 +1213,8 @@ const stringList = (v, max) => (Array.isArray(v) ? v.filter((x) => typeof x === 
 /** The kind of device Kino says it is ("tv" or "phone"); a Kino without `kino.device` counts as a phone. */
 const deviceKind = () => (typeof kino.device === "string" && kino.device === "tv" ? "tv" : "phone");
 
-/**
- * Watched titles for trying the plugin without a history in Kino: used instead of `kino.library` while the
- * «Títulos de ejemplo» switch is on, and said so on screen. Movies and series only.
- */
-export const SAMPLE_WATCHED = [
-  { title: "Avatar", kind: "movie", year: 2009 },
-  { title: "Avatar: The Last Airbender", kind: "series", year: 2024 },
-  { title: "Breaking Bad", kind: "series", year: 2008 },
-  { title: "Dune", kind: "movie", year: 2021 },
-  { title: "Stranger Things", kind: "series", year: 2016 },
-  { title: "One Piece", kind: "series", year: 2023 },
-  { title: "Dragon Ball", kind: "series", year: 1986 },
-];
+/** The 18+ filter as stored now (on by default); only kino.config, no storage read. */
+const hideAdultNow = () => isOn(kino.config.get("hideAdult"), true);
 
 /** The stored settings as `step` takes them (with the watched titles read last and the excluded ones). */
 function stored(lang) {
@@ -1147,7 +1225,8 @@ function stored(lang) {
     useLibrary: isOn(kino.config.get("useLibrary"), false),
     loadMedia: isOn(kino.config.get("loadMedia"), true),
     useAi: isOn(kino.config.get("useAi"), false),
-    sampleLibrary: isOn(kino.config.get("sampleLibrary"), false),
+    // On by default: missing (a fresh install, an update from a version without it) counts as on.
+    hideAdult: hideAdultNow(),
     libraryCount: Math.min(MAX_TERMS, Math.max(1, parseInt(kino.config.get("libraryCount"), 10) || 5)),
     frequencyMin: STALE_AFTER_MIN,
     titles: validWatched(localOf().get(KEYS.watched)),
@@ -1161,11 +1240,6 @@ function stored(lang) {
  */
 async function readWatched() {
   const cache = localOf();
-  if (isOn(kino.config.get("sampleLibrary"), false)) {
-    const titles = watchedTitles(SAMPLE_WATCHED, 100);
-    cache.set(KEYS.watched, titles);
-    return { titles, denied: false };
-  }
   if (typeof kino.library !== "object") return { titles: validWatched(cache.get(KEYS.watched)), denied: false };
   try {
     const titles = watchedTitles(await kino.library.watched({ limit: 100 }), 100);
@@ -1474,25 +1548,28 @@ function newsTab(state, en, now) {
 }
 
 
-/** A removable term: its text and a «Quitar» button. */
-function termRow(key, text, event, arg) {
+/** Under a term or watched title the 18+ filter keeps out of the searches. */
+const HIDDEN_NOTE = { type: "text", style: "caption", color: "warning", text: "Oculto por el filtro +18", textEn: "Hidden by the 18+ filter" };
+
+/** A removable term: its text (and «Oculto por el filtro +18» when the filter keeps it out) and a «Quitar» button. */
+function termRow(key, text, event, arg, hidden = false) {
   return {
     type: "row", key, gap: 8, align: "center",
     children: [
-      { type: "text", text, style: "p", weight: 1, maxLines: 2 },
+      hidden ? { type: "col", weight: 1, gap: 4, children: [{ type: "text", text, style: "p", maxLines: 2 }, HIDDEN_NOTE] } : { type: "text", text, style: "p", weight: 1, maxLines: 2 },
       { type: "button", variant: "text", label: "Quitar", labelEn: "Remove", onTap: { event, arg } },
     ],
   };
 }
 
 /** A watched work as a removable row: the title, its kind as a chip (the year beside it when the library has one). */
-function watchedRow(key, w) {
+function watchedRow(key, w, hidden = false) {
   const kindEs = w.kind === "series" ? "Serie" : "Película";
   const kindEn = w.kind === "series" ? "Series" : "Movie";
   return {
     type: "row", key, gap: 8, align: "center",
     children: [
-      { type: "text", text: w.title, style: "p", weight: 1, maxLines: 2 },
+      hidden ? { type: "col", weight: 1, gap: 4, children: [{ type: "text", text: w.title, style: "p", maxLines: 2 }, HIDDEN_NOTE] } : { type: "text", text: w.title, style: "p", weight: 1, maxLines: 2 },
       { type: "badge", text: kindEs + (w.year ? " · " + w.year : ""), textEn: kindEn + (w.year ? " · " + w.year : "") },
       { type: "button", variant: "text", label: "Quitar", labelEn: "Remove", onTap: { event: "excludeWatched", arg: watchedKey(w) } },
     ],
@@ -1505,13 +1582,13 @@ function settingsView(state, lang) {
   const titles = Array.isArray(state.watched) ? validWatched(state.watched) : s.titles;
   const room = watchedRoom(s.libraryCount, s.terms.length);
   const watched = s.useLibrary ? watchedTitles(titles, room, [...s.excluded, ...s.terms]) : [];
-  return { s, titles, watched, total: s.terms.length + watched.length };
+  return { s, titles, watched, total: s.terms.length + watched.length, hidden: (t) => s.hideAdult && isAdult(t) };
 }
 
 const ADD_POPUP = "addTerm";
 
 function settingsTab(state, lang) {
-  const { s, watched, total } = settingsView(state, lang);
+  const { s, watched, total, hidden } = settingsView(state, lang);
   const section = (es, en) => ({ type: "text", text: es, textEn: en, style: "h4" });
   const note = (es, en, color = "muted") => ({ type: "text", style: "caption", color, text: es, textEn: en });
   const children = [
@@ -1525,6 +1602,11 @@ function settingsTab(state, lang) {
       "Para mostrarlas, tu aparato abre la página de cada noticia en el sitio del medio, poco a poco. Apagado: sin conexiones a los medios, tarjetas sin foto y solo el resumen de Google.",
       "To show them, your device opens each story's page on the outlet's site, a few at a time. Off: no connection to the outlets, cards without photos and only Google's summary.",
     ),
+    section("Contenido +18", "18+ content"),
+    // Kino's own settings form for this one setting: its manifest entry says "unlockWith": "adultCode", so switching it off
+    // asks the device's 18+ code first (switching it on never does). The form draws the hint and its own Guardar.
+    { type: "settings", key: "adultSettings", keys: ["hideAdult"] },
+    note("Para apagarlo, Kino te pide su código de control parental; luego pulsa Guardar.", "To switch it off, Kino asks for its parental control code; then press Save."),
     section("Clasificar", "Sort into categories"),
     { type: "toggle", key: "useAi", label: "Clasificar con IA", labelEn: "Sort with AI", value: s.useAi, onChange: "ai" },
     note(
@@ -1541,11 +1623,6 @@ function settingsTab(state, lang) {
       "warning",
     ),
   ];
-  children.push({ type: "toggle", key: "sampleLibrary", label: "Títulos de ejemplo", labelEn: "Sample titles", value: s.sampleLibrary, onChange: "sampleLibrary" });
-  children.push(note(
-    "Para probar sin historial: usa Avatar, Breaking Bad, Dune, Stranger Things, One Piece y Dragon Ball como si los hubieras visto. Nada sale de tu biblioteca.",
-    "To try it without a history: uses Avatar, Breaking Bad, Dune, Stranger Things, One Piece and Dragon Ball as if you had watched them. Nothing comes from your library.",
-  ));
   if (s.useLibrary) {
     const max = Math.max(1, MAX_TERMS - s.terms.length);
     children.push({ type: "stepper", key: "libraryCount", label: "Títulos recientes", labelEn: "Recent titles", min: 1, max, value: Math.min(s.libraryCount, max), onChange: "count" });
@@ -1554,7 +1631,7 @@ function settingsTab(state, lang) {
     } else if (watched.length === 0) {
       children.push({ type: "text", style: "p", color: "muted", text: "No hay títulos vistos para usar.", textEn: "No watched titles to use." });
     }
-    watched.forEach((w, i) => children.push(watchedRow("w" + i, w)));
+    watched.forEach((w, i) => children.push(watchedRow("w" + i, w, hidden(w.title))));
     if (s.excluded.length) {
       children.push({
         type: "row", gap: 8, align: "center",
@@ -1571,7 +1648,7 @@ function settingsTab(state, lang) {
     type: "button", key: "addTermButton", variant: "secondary", icon: "magic", label: "Agregar término", labelEn: "Add term",
     enabled: total < MAX_TERMS, onTap: { ui: [{ open: ADD_POPUP }] },
   });
-  s.terms.forEach((t, i) => children.push(termRow("t" + i, t, "removeTerm", t)));
+  s.terms.forEach((t, i) => children.push(termRow("t" + i, t, "removeTerm", t, hidden(t))));
   if (isObj(state.settingsError)) children.push({ type: "banner", key: "settingsError", role: "error", text: str(state.settingsError.es, 200), textEn: str(state.settingsError.en, 200) });
   // The pop-up that adds a term. Kino checks the field (required, at most 40 characters) before the plugin sees it; the
   // plugin checks the rest (a repeated term, 50 in all) and says so inside the pop-up.
@@ -1628,43 +1705,30 @@ export function updatedCaption(feed, now, en) {
   return { type: "text", key: "updatedAgo", style: "caption", color: offline ? "warning" : "muted", maxLines: 1, text: es, textEn: enText };
 }
 
-/**
- * The header: the tabs on the left, «Actualizar» on the right, in one row. On a phone it is Kino's tab strip (it takes the
- * room the button leaves). On a TV Kino keeps Left and Right inside a tab strip (Right on its last tab goes nowhere), so the
- * button could not be reached across; there the tabs are a row of buttons with the same event (`pickTab`), the picked one
- * filled, and Left and Right move tab, tab, «Actualizar»; Down goes to the content.
- */
 /** Room under the header row in every size class, so the content scrolling under it never touches it (then a divider). */
 export const HEADER_PADDING = { compact: { end: 8, bottom: 8 }, medium: { start: 8, end: 8, bottom: 8 }, expanded: { start: 16, end: 16, top: 8, bottom: 12 } };
 
 /**
- * The tab bodies' padding: the header stays outside their scroll, and the first heading starts at least 12 dp (16 on a TV)
- * under the header's divider, never glued to the tabs.
+ * The tab bodies' padding, for the static layout only: the header stays outside their scroll, and the first heading starts
+ * 12 dp (16 on a TV) under the header's divider. Kino's TV already scrolls a focused item into view with its own margin, so
+ * this is not doubled for focus.
  */
 export const BODY_PADDING = { compact: { start: 16, end: 16, top: 12, bottom: 16 }, medium: 16, expanded: { start: 24, end: 24, top: 16, bottom: 24 } };
 
-export function header(tab, device, feed = null, now = Date.now(), en = false) {
+/**
+ * The header, the same on a phone and a TV: Kino's tab strip on the left (it takes the room left), then «Actualizado hace …»
+ * and the refresh icon on the right. On a TV Left and Right walk the tabs and, past the last one, reach the refresh icon in
+ * the same row (ui.md, TabBar); Down goes to the content.
+ */
+export function header(tab, feed = null, now = Date.now(), en = false) {
   const cluster = [updatedCaption(feed, now, en), REFRESH_BUTTON].filter(Boolean);
-  if (device === "tv") {
-    return {
-      type: "row", key: "header", gap: 12, align: "center", padding: HEADER_PADDING,
-      children: [
-        ...TABS.map((t) => ({
-          type: "button", key: "tab_" + t.value, label: t.label, labelEn: t.labelEn,
-          variant: t.value === tab ? "primary" : "text", onTap: { event: "pickTab", arg: t.value },
-        })),
-        { type: "spacer", weight: 1 },
-        ...cluster,
-      ],
-    };
-  }
   return {
-    type: "row", key: "header", gap: 8, align: "center", padding: HEADER_PADDING,
+    type: "row", key: "header", gap: { compact: 8, expanded: 12 }, align: "center", padding: HEADER_PADDING,
     children: [{ type: "tabs", key: "tabs", tabs: TABS, value: tab, onChange: "pickTab", weight: 1 }, ...cluster],
   };
 }
 
-export async function screen({ state, lang, device }) {
+export async function screen({ state, lang }) {
   const en = isEn(lang);
   const now = Date.now();
   const tab = state.tab === "settings" ? "settings" : "news";
@@ -1674,12 +1738,13 @@ export async function screen({ state, lang, device }) {
   return {
     type: "col", every,
     children: [
-      header(tab, device, state.feed, now, en),
+      header(tab, state.feed, now, en),
       { type: "divider", key: "headerLine" },
       // Shown at once by the refresh tap (Kino's own ui operation), hidden by the answer: under the header, on either tab.
       {
         type: "row", key: "refreshing", hidden: true, gap: 8, align: "center", padding: { left: 16, right: 16 },
-        children: [{ type: "progress", label: "Actualizando…", labelEn: "Refreshing…", weight: 1 }, { type: "text", text: "Actualizando…", textEn: "Refreshing…", style: "caption", color: "muted" }],
+        // One label only: Kino's progress bar draws its own label beside the bar (a sibling text would show it twice).
+        children: [{ type: "progress", label: "Actualizando…", labelEn: "Refreshing…", weight: 1 }],
       },
       tab === "settings" ? settingsTab(state, lang) : newsTab(state, en, now),
     ],
@@ -1705,7 +1770,8 @@ async function readStory(id, lang) {
   const s = stored(lang);
   const stories = validStories(cache.get(KEYS.stories));
   const rec = stories.find((x) => x.id === id);
-  if (!rec) return null;
+  // A story the 18+ filter drops is never opened, and its page never read.
+  if (!rec || (s.hideAdult && adultRecord(rec))) return null;
   const m = matchTerm(rec.t, buildTerms(s));
   const base = { id, title: rec.t, source: rec.s, ts: rec.p, cat: rec.c, term: m ? m.term : null, from: m ? m.from : null, image: s.loadMedia ? rec.i : null, desc: s.loadMedia ? rec.d : "" };
   let text = "";
@@ -1721,6 +1787,10 @@ async function readStory(id, lang) {
           const url = decodeArticleUrl(rec.g) || (await resolveArticle(u, rec.g, s.edition));
           rec.r = Date.now();
           if (url) { rec.u = url; rec.g = null; }
+        }
+        if (s.hideAdult && isAdultUrl(rec.u)) {
+          cache.set(KEYS.stories, fitSize(stories.filter((x) => x.id !== id)));
+          return null;
         }
         if (rec.u) {
           const page = await u.fetch(rec.u, { headers: { Accept: "text/html" }, maxBytes: READ_BYTES.article, timeoutMs: PAGE_TIMEOUT_MS });
@@ -1839,7 +1909,7 @@ export async function screenEvent({ name, arg, value, state, lang }) {
     }
     case "classifyNow": {
       // The person's tap: one question to the AI about the next 10 headlines it has not sorted (Kino refuses it elsewhere).
-      const r = await classifyNow(cacheOf(), realClock, budgetFor(deviceKind()), askAi);
+      const r = await classifyNow(cacheOf(), realClock, budgetFor(deviceKind()), askAi, stored(lang).hideAdult);
       const s = stored(lang);
       const feed = state.feed ? { ...state.feed, items: r.stories.slice(0, MAX_CARDS).map((x) => cardOf(x, buildTerms(s), s.loadMedia)) } : state.feed;
       return r.done
@@ -1852,20 +1922,16 @@ export async function screenEvent({ name, arg, value, state, lang }) {
       // RELOAD timer, once drawn.
       const tab = typeof value === "string" ? value : arg;
       if (tab !== "settings" && tab !== "news") return null;
-      return { state: tab === "settings" ? { tab, settingsError: null } : { tab, shown: PAGE } };
+      // The 18+ filter is changed in Kino's settings node, which tells the plugin nothing: the filter Configuración opened
+      // with is kept, and Noticias reloads when the person left it different.
+      if (tab === "settings") return { state: { tab, settingsError: null, adultWas: hideAdultNow() } };
+      const adultChanged = typeof state.adultWas === "boolean" && state.adultWas !== hideAdultNow();
+      return { state: { tab, shown: PAGE, adultWas: null, ...(adultChanged ? { feedOutdated: true } : {}) } };
     }
     case "media":
       return { state: changed, config: { loadMedia: value === true }, toast: SAVED };
     case "ai":
       return { state: changed, config: { useAi: value === true }, toast: SAVED };
-    case "sampleLibrary": {
-      // The sample list is read at once; the stored setting may lag a moment behind this answer.
-      const on = value === true;
-      const titles = on ? watchedTitles(SAMPLE_WATCHED, 100) : [];
-      if (on) cacheOf().set(KEYS.watched, titles);
-      else if (typeof kino.library !== "object") cacheOf().set(KEYS.watched, []);
-      return { state: { ...changed, watched: on ? titles : undefined }, config: { sampleLibrary: on }, toast: SAVED };
-    }
     case "library": {
       const on = value === true;
       if (!on) return { state: changed, config: { useLibrary: false }, toast: SAVED };

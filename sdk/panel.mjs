@@ -4,7 +4,7 @@
 // line below is the app's, so `· dropped: <reason>` here is the line the app logs. Nothing throws on a bad answer:
 // an invalid element is dropped with a reason, a panel that is not an object is null.
 import { createHmac } from "node:crypto";
-import { contract, imageVerdict, javaDouble, qrUrl, screenGoOf, skipOf, titleByIdsOf, urlGoOf } from "./contract.mjs";
+import { contract, imageVerdict, javaDouble, qrUrl, screenGoOf, skipOf, titleByIdsOf, urlGoOf, copyGoOf } from "./contract.mjs";
 import { resolvePalette } from "./palette.mjs";
 import { shownSentence } from "./kino-shim.mjs";
 
@@ -262,9 +262,42 @@ export function panelTabsOf(arr, lang, log) {
     if (label === "") { log(`panel: tab ${id} has no label`); continue; }
     if (seen.has(id)) { log(`panel: duplicate tab ${id} dropped`); continue; }
     seen.add(id);
-    out.push({ id, label });
+    // Task 15: a tab's badge (the shared `badge`), beside its label.
+    const badge = t.badge !== undefined && t.badge !== null ? badgeOf(t.badge, lang, `panel: tab ${id}`, log) : null;
+    out.push({ id, label, badge });
   }
   return out;
+}
+
+/** A plugin value as the app's log lines show it (PluginScreenOutput.fmt): a string quoted and cut to 40, anything else cut to 40. */
+function fmtValue(v) {
+  if (typeof v === "string") return `"${v.slice(0, 40)}"`;
+  if (v === undefined || v === null) return "null";
+  const t = typeof v === "number" ? (Number.isInteger(v) ? String(v) : javaDouble(v)) : typeof v === "object" ? JSON.stringify(v).replace(/\//g, "\\/") : String(v);
+  return t.slice(0, 40);
+}
+
+const SCREEN_SHARED = contract.manifest.screen.sharedProps;
+
+/**
+ * PluginScreenOutput.badgeOf (Task 15): the shared `badge`, the Badge node's shape: `"dot"` or `{ text, textEn?, color? }`. A
+ * text over sharedProps.badge.maxChars is cut, a colour that is no role takes the default (both logged under [where]);
+ * anything else is dropped, logged (null). `{ text: null }` is a dot.
+ */
+export function badgeOf(raw, lang, where, log) {
+  const B = SCREEN_SHARED.badge;
+  if (raw === B.dot) return { text: null, color: null };
+  const text = isObj(raw) ? localized(raw, "text", lang).trim() : "";
+  if (!isObj(raw) || text === "") { log(`${where} badge ${fmtValue(raw)} is not "dot" or { text, textEn?, color? }, dropped`); return null; }
+  let cut = text;
+  if (text.length > B.maxChars) { cut = text.slice(0, B.maxChars); log(`${where} badge text is over ${B.maxChars} characters, cut`); }
+  let color = null;
+  const c = raw.color;
+  if (c !== undefined && c !== null) {
+    if (typeof c === "string" && contract.manifest.screen.colorRoles.includes(c)) color = c;
+    else log(`${where} badge color ${fmtValue(c)} is not a color role, the default used`);
+  }
+  return { text: cut, color };
 }
 
 /** One leaf of a panel, or null (logged). [keys] are the keys already placed. */
@@ -379,13 +412,14 @@ function answerOf(value, lang, servers, log) {
   const go = panelGoOf(value.go, "answer", log, true);
   const byIds = go !== null && "titleByIds" in go ? go.titleByIds : null;
   const url = go !== null && "url" in go ? go.url : null;
-  return { panel, patch, values, save, focus, message, player, go: byIds === null && url === null ? go : null, pause: value.pause === true, titleByIds: byIds, url };
+  const copy = go !== null && "copy" in go ? go.copy : null;
+  return { panel, patch, values, save, focus, message, player, go: byIds === null && url === null && copy === null ? go : null, pause: value.pause === true, titleByIds: byIds, url, copy };
 }
 
 /**
  * PluginPanelOutput.goOf (Task 7g): a panel's `go` is only `{ screen: { route?, args? } }`, this plugin's own screen, read as a
  * screen reads it; in an answer ([pressGoesToo]) also `{ titleByIds: {...} }` (Task 8m, returned as `{ titleByIds }`) and
- * `{ url: { href, title? } }` (Task 8s, returned as `{ url }`), the gos only a press honours. Anything else is dropped,
+ * `{ url: { href, title? } }` (Task 8s, returned as `{ url }`) and `{ copy: { text, label?, sensitive? } }` (Task 8x, as `{ copy }`), the gos only a press honours. Anything else is dropped,
  * logged under [where].
  */
 function panelGoOf(raw, where, log, pressGoesToo = false) {
@@ -398,8 +432,12 @@ function panelGoOf(raw, where, log, pressGoesToo = false) {
     const g = urlGoOf(raw.url, (why) => log(`panel: ${where} go.url ${why}, dropped`));
     return g === null ? null : { url: g };
   }
+  if (pressGoesToo && isObj(raw) && Object.keys(raw).length === 1 && "copy" in raw) {
+    const g = copyGoOf(raw.copy, (why) => log(`panel: ${where} go.copy ${why}, dropped`));
+    return g === null ? null : { copy: g };
+  }
   if (!isObj(raw) || Object.keys(raw).length !== 1 || !("screen" in raw)) {
-    log(`panel: ${where} go must be ${pressGoesToo ? "{screen: {route, args}} or {titleByIds: {...}} or {url: {href, title}}" : "{screen: {route, args}}"}, dropped`);
+    log(`panel: ${where} go must be ${pressGoesToo ? "{screen: {route, args}} or {titleByIds: {...}} or {url: {href, title}} or {copy: {text, label}}" : "{screen: {route, args}}"}, dropped`);
     return null;
   }
   return screenGoOf(raw.screen, (why) => log(`panel: ${where} go.screen ${why}, dropped`));
@@ -767,6 +805,48 @@ export function foreignAnswerDrops(answer, trigger, { control = false } = {}) {
 /** Whether [manifest] contributes a tab to the player panel of other plugins' titles (the merged manifest). */
 export function contributesPanel(manifest) {
   return manifest.panel?.contributes === true && (manifest.capabilities || []).includes(CONTRIBUTES.capability);
+}
+
+// ---------- Task 11: the player panel on a live channel ----------
+
+const LIVE = contract.kinoLivePanel;
+
+/** The content kinds [manifest]'s contributed tab joins (`panel.kinds`, default ["title"]); empty when it contributes none. */
+export function contributedKinds(manifest) {
+  if (!contributesPanel(manifest)) return [];
+  return Array.isArray(manifest.panel.kinds) ? manifest.panel.kinds : [...CONTRIBUTES.kinds.default];
+}
+
+/** Whether [manifest]'s contributed tab joins an En vivo channel's panel (`"kinds"` holds "live"). */
+export function contributesLive(manifest) {
+  return contributedKinds(manifest).includes(LIVE.kind);
+}
+
+/**
+ * The context a tab gets on an En vivo channel (the app's PanelContextJson live shape), exactly contract
+ * `kinoLivePanel.contextFields`: the channel `{ provider, code, name }`, `foreign: true`, the provider as `source`, and the
+ * session's own parts taken from [base] (device, lang, tab, values, features; in screen mode state and size).
+ */
+export function liveContext(channel, base = {}, sourceName = channel.provider) {
+  const out = {
+    kind: LIVE.kind, live: true, channel: { provider: channel.provider, code: channel.code, name: channel.name ?? channel.code },
+    foreign: true, source: { pluginId: channel.provider, name: sourceName },
+    device: base.device ?? "tv", lang: base.lang ?? "es-CO", values: base.values ?? { video: {}, plugin: {} },
+  };
+  if (base.tab !== undefined) out.tab = base.tab;
+  if (base.features !== undefined) out.features = base.features;
+  for (const k of LIVE.screenContextAdds) if (base[k] !== undefined) out[k] = base[k];
+  return out;
+}
+
+/** What the app drops of a live tab's answer [answer]: its whole `player` (live_channel) and, as any contributed tab, go.title/play. */
+export function liveAnswerDrops(answer) {
+  const out = [];
+  if (!answer || typeof answer !== "object") return out;
+  if (answer.player !== undefined && answer.player !== null) out.push(LIVE.playerDroppedLog.replace(/^panel: /, ""));
+  const g = answer.go;
+  if (g && typeof g === "object") for (const k of CONTRIBUTES.goDropped) if (g[k] !== undefined) out.push(`go.${k}: a contributed panel never opens a plugin's title, dropped`);
+  return out;
 }
 
 // ---------- Task 8j: who may move the player (PlayerControlRules, contract.kinoPlayerControl) ----------

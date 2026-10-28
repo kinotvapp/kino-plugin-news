@@ -202,6 +202,67 @@ function urlPublicName(host) {
 }
 
 /**
+ * PluginScreenOutput.copyGoOf (Task 8x): a `go.copy`'s value, only text, label and sensitive; the text scrubbed (newlines kept),
+ * trimmed, 1..goCopy.maxTextChars characters in at most goCopy.maxLines lines; the label scrubbed, trimmed, at most
+ * goCopy.maxLabelChars (blank: none); sensitive true or false. Or null with [bad] told the first reason (never the text).
+ * Returns `{ text, label?, sensitive? }` (`sensitive` only when true).
+ */
+export function copyGoOf(v, bad) {
+  const C = contract.manifest.screen.goCopy;
+  if (v === null || typeof v !== "object" || Array.isArray(v)) { bad("is not an object"); return null; }
+  if (Object.keys(v).some((k) => !C.fields.includes(k))) { bad(`takes only ${C.fields.join(", ")}`); return null; }
+  const badText = `text must be 1 to ${C.maxTextChars} characters`;
+  if (typeof v.text !== "string") { bad(badText); return null; }
+  const text = v.text.replace(new RegExp(C.textScrubPattern, "g"), "").trim();
+  if (text === "" || text.length > C.maxTextChars) { bad(badText); return null; }
+  if (text.split("\n").length > C.maxLines) { bad(`text must be at most ${C.maxLines} lines`); return null; }
+  const badLabel = `label must be text of at most ${C.maxLabelChars} characters`;
+  let label = null;
+  if (v.label !== undefined && v.label !== null) {
+    if (typeof v.label !== "string") { bad(badLabel); return null; }
+    const l = v.label.replace(new RegExp(C.labelScrubPattern, "g"), "").trim();
+    if (l.length > C.maxLabelChars) { bad(badLabel); return null; }
+    if (l !== "") label = l;
+  }
+  let sensitive = false;
+  if (v.sensitive !== undefined && v.sensitive !== null) {
+    if (typeof v.sensitive !== "boolean") { bad("sensitive must be true or false"); return null; }
+    sensitive = v.sensitive;
+  }
+  return { text, ...(label !== null ? { label } : {}), ...(sensitive ? { sensitive: true } : {}) };
+}
+
+/**
+ * PluginScreenOutput.liveChannelGoOf (Task 11): a `go.liveChannel`'s value, exactly `provider` (a plugin id, never a reserved
+ * one) and `code` (an item id: the channel's id in that plugin's listing). Or null with [bad] told the first reason.
+ */
+export function liveChannelGoOf(v, bad) {
+  const L = contract.manifest.screen.goLiveChannel;
+  if (v === null || typeof v !== "object" || Array.isArray(v)) { bad("is not an object"); return null; }
+  if (Object.keys(v).some((k) => !L.fields.includes(k))) { bad(`takes only ${L.fields.join(", ")}`); return null; }
+  if (typeof v.provider !== "string" || !new RegExp(L.providerPattern).test(v.provider) || L.reservedProviders.includes(v.provider)) {
+    bad("provider must be a plugin id"); return null;
+  }
+  if (typeof v.code !== "string" || !new RegExp(L.codePattern).test(v.code)) { bad("code must be a channel id (1 to 128 letters, digits, . _ ~ -)"); return null; }
+  return { provider: v.provider, code: v.code };
+}
+
+/**
+ * ScreenLiveChannel.refusal (Task 11): why a kept `go.liveChannel` from [manifest]'s plugin is not honoured for an event of
+ * [trigger] ("press", "submit", "change", "open", "timer", ...), or null when Kino tunes. Not the person's own press or submit:
+ * "not_press"; a plugin whose approved contributing panel does not declare "live" in kinds: goLiveChannel.needsLiveTabLog.
+ */
+export function liveChannelGoRefusal(manifest, trigger) {
+  const L = contract.manifest.screen.goLiveChannel;
+  const C = contract.manifest.panel.contributes;
+  if (!L.fromTriggers.includes(trigger)) return "not_press";
+  const caps = manifest?.capabilities ?? [];
+  const kinds = Array.isArray(manifest?.panel?.kinds) ? manifest.panel.kinds : C.kinds.default;
+  if (manifest?.panel?.contributes !== true || !caps.includes(C.capability) || !kinds.includes(L.needsKind)) return L.needsLiveTabLog;
+  return null;
+}
+
+/**
  * ScreenUrl.cleanTitle (Task 8s fix round 1, M3): goUrl.titleScrubPattern's characters removed, runs of combining marks cut to
  * goUrl.maxCombiningMarks, trimmed.
  */
@@ -594,7 +655,19 @@ function validateManifestObject(o, { knownPermissions = contract.permissions } =
     const iconFile = typeof rawFile === "string" && rawFile.replace(/^\.\//, "") ? rawFile.replace(/^\.\//, "") : null;
     if (icon !== null && iconFile !== null) return bad("panel", 'The "panel" field takes "icon" or "iconFile", not both');
     if (iconFile !== null && (!isSafeRelativePath(iconFile) || !iconFile.endsWith(".png"))) return bad("panel", 'The "panel.iconFile" field must be a relative path to a .png');
-    panel = { label, ...(labelEn ? { labelEn } : {}), ...(icon !== null ? { icon } : {}), ...(iconFile !== null ? { iconFile } : {}), ...(contributes ? { contributes: true } : {}) };
+    // Task 11 (apiVersion 14): which content a contributed tab joins, "title" and/or "live"; default ["title"].
+    const K = C.kinds;
+    let kinds = null;
+    if (o.apiVersion >= C.apiVersion && o.panel.kinds !== undefined && o.panel.kinds !== null) {
+      if (!contributes) return bad("panel", K.needsContributesMessage);
+      const raw = o.panel.kinds;
+      if (!Array.isArray(raw) || raw.length === 0 || raw.some((k) => !K.values.includes(k))) return bad("panel", K.badMessage);
+      kinds = K.values.filter((k) => raw.includes(k));
+    }
+    panel = {
+      label, ...(labelEn ? { labelEn } : {}), ...(icon !== null ? { icon } : {}), ...(iconFile !== null ? { iconFile } : {}), ...(contributes ? { contributes: true } : {}),
+      ...(contributes ? { kinds: kinds ?? [...K.default] } : {}),
+    };
   }
   // Task 8k: the capability and `panel.contributes` need each other (the capability is what the person approves).
   if (panel?.contributes === true && !caps.includes(m.panel.contributes.capability)) return bad("panel", m.panel.contributes.needsCapabilityMessage);
@@ -1084,6 +1157,12 @@ function validateSettings(list, apiVersion = contract.maxApiVersion) {
     if (apiVersion >= s.sync.apiVersion && o.sync !== undefined && o.sync !== null) {
       if (!s.sync.types.includes(o.type)) return s.sync.onlyPasswordOrTextMessage.replace("{key}", key);
       if (typeof o.sync !== "boolean") return s.sync.notBooleanMessage.replace("{key}", key);
+    }
+    // apiVersion 14 `unlockWith` (PluginSettings): a toggle or a select may ask Kino's 18+ code before it moves away from its
+    // default; only one of the known values; ignored below it.
+    if (apiVersion >= s.unlockWith.apiVersion && o.unlockWith !== undefined && o.unlockWith !== null) {
+      if (!s.unlockWith.types.includes(o.type)) return s.unlockWith.onlyToggleOrSelectMessage.replace("{key}", key);
+      if (!s.unlockWith.values.includes(o.unlockWith)) return s.unlockWith.badValueMessage.replace("{key}", key).replace("{values}", s.unlockWith.values.join(", "));
     }
   }
   if (list.filter((o) => o.type === "link").length > s.configAids.maxLinks) return `The plugin has more than ${s.configAids.maxLinks} settings of type link`;
@@ -2663,6 +2742,17 @@ export function settableTypes(apiVersion) {
 }
 
 /**
+ * SettingLocks.refusesPluginWrite: whether a plugin's own write of [wanted] to setting [s] (its manifest entry) is refused by its
+ * `unlockWith`: anything but its default (a toggle without one starts off, a select at its first option).
+ */
+export function lockRefuses(s, wanted) {
+  if (!s || s.unlockWith === undefined || s.unlockWith === null) return false;
+  const def = s.default !== undefined && s.default !== null ? s.default
+    : s.type === "toggle" ? false : s.type === "select" && Array.isArray(s.options) && s.options[0] ? s.options[0].value : null;
+  return wanted !== def;
+}
+
+/**
  * An action answer's `setSettings` (additive action.setSettings), as PluginSettingsUi.setValues: the kept values, or null when
  * Kino refuses the whole field (one drop line). Only the plugin's own text/select settings and, from apiVersion 13, its
  * passwords (never a url); a value the scrub would change holds a secret and is refused.
@@ -2680,7 +2770,8 @@ function setSettingsOf(raw, settings, cleared, scrub, drop, apiVersion) {
     const s = settings.find((x) => x.key === k && types.includes(x.type));
     const v = typeof raw[k] === "string" ? raw[k].trim() : null;
     const type = s && contract.settings.types[s.type];
-    const fits = s && v !== null && !cleared.includes(k) && !(s.required === true && !v) &&
+    // A locked select (unlockWith) moves away from its default only by the person, after the code (SettingLocks).
+    const fits = s && v !== null && !cleared.includes(k) && !(s.required === true && !v) && !lockRefuses(s, v) &&
       (s.type === "select" ? (s.options || []).some((o) => o.value === v)
         : v.length <= type.maxChars && (s.type !== "url" || !v || isUserServer(v))) &&
       scrub(v) === v;

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+- **Hide 18+ news** is now locked with Kino's parental control code: switching it off asks for the code (Kino's own
+  prompt, on the phone and on the TV); switching it back on never does. The plugin never sees the code. The switch is
+  drawn by Kino's settings form inside Settings, and News reloads when you come back with the filter changed.
+- Needs Kino 0.9.74 or newer (plugin `apiVersion` 14).
+
 ## 1.0.0
 
 The first public version (Kino plugin `apiVersion` 14).

@@ -44,9 +44,23 @@ always with the same key: Kino refuses an update signed by another one.
 ## How it works
 
 <!-- sync:begin example-readme -->
-_Synced by `scripts/sync-from-example.mjs` from `docs/plugins/examples/screen-news` in Kino's repository at `aef850c1e`. Do not edit by hand: change the example and sync again._
+_Synced by `scripts/sync-from-example.mjs` from `docs/plugins/examples/screen-news` in Kino's repository at `c8632a6e1`. Do not edit by hand: change the example and sync again._
 
 ### Where the news come from
+
+- **The 18+ filter** (`hideAdult`, on by default: a fresh install and an update both read a missing value as on). A
+  basic, pure word filter (`isAdult`): whole words and phrases in Spanish, English, Portuguese and French, accents and case
+  aside (porno, pornografía, xxx, NSFW, +18, OnlyFans, sex tape, sexo explícito, escort service, prostitución, the names of
+  well-known adult sites...), and a small list of adult domains (`isAdultUrl`) for the outlet's address. It is careful
+  with look-alikes (Sex Education, sexto, Essex, Sussex, young adult, Ford Escort, Super Bowl XXX). With it on, a story
+  whose headline, source, description or outlet looks 18+ never enters the cache or the category counts and its page is
+  never read; the person's terms and watched titles that look 18+ are never sent to Google and show «Oculto por el filtro
+  +18» in their rows; with the AI on, it may also answer the internal category `adult`, and those stories are dropped
+  (never a tab). The screen says it honestly: «Filtro básico por palabras: puede no detectar todo». Off, nothing is
+  filtered. The switch is locked with Kino's 18+ code (`"unlockWith": "adultCode"`, apiVersion 14): Configuración shows it
+  through Kino's own settings form (`{ type: "settings", keys: ["hideAdult"] }`), which asks the device's 18+ code before
+  switching it off (never to switch it on) and saves it; the plugin never sees the code and has no event of its own for it.
+  When the person comes back to Noticias with the filter changed, the feed reloads.
 
 - **Google News RSS** (`news.google.com`, no key). With no term: the top stories of the edition that matches Kino's
   language. With terms: OR searches, e.g. `"Dragon Ball Daima" OR ("Avatar" película) OR ("Breaking Bad" serie)`: a watched
@@ -97,8 +111,8 @@ Who calls `step`:
 - **The header**: the tabs on the left; on the right «Actualizado hace 12 min» (a muted caption worked out from the stored
   `fetchedAt` on every render, «Sin conexión» in the warning colour when the feed is stale or failed) and the refresh
   button, the circular arrow alone (`variant: "icon"`; its label «Actualizar ahora» is what TalkBack and the TV's focus
-  read). On a TV the tab strip keeps Left and Right inside itself, so there the tabs are a row of buttons with the same
-  `pickTab` event and Left/Right go tab, tab, refresh. A small margin and a divider sit under the header, which stays
+  read). The same row on a phone and a TV: Kino's tab strip; on a TV Left and Right walk the tabs and, past the last one,
+  reach the refresh icon in the same row (Down goes to the content). A small margin and a divider sit under the header, which stays
   out of the tabs' scroll; «Actualizando…» shows under it while a refresh works.
 - **Switching tabs** is a pure state change: no request, no storage read or write (the watched titles shown in
   Configuración are the ones read when the screen opened). Only the active tab's nodes are in the tree. After a settings

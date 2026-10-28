@@ -30,7 +30,7 @@ const WIDGET_TEXT = {
   image: "an https picture on a public host (`url`, `alt`, `fallback`)", icon: "one of Kino's icons (`name`)", badge: "a small label (`text`)",
   progress: "a progress bar (`value`, `labelText`)", loading: "Kino's spinner (`text`)",
   list: "a lazy list of `items` (nodes), `empty` when there are none, load more", button: "a button (`labelText`, `icon`, `onPressed`, `confirm`, `submit`)",
-  textInput: "a text field (`kind`, `maxLength`, `value`, `onSubmitted`)", textArea: "a text field of several lines (`multiline: true` or `maxLines` above 1)",
+  textInput: "a text field (`kind`, `maxLength`, `value`, `onSubmitted`; a `trailingIcon` inside it with `trailingLabel` and `onTrailingTap`)", textArea: "a text field of several lines (`multiline: true` or `maxLines` above 1)",
   dropdown: "a choice among `options`", toggle: "an on/off switch", checkbox: "a check box", radioGroup: "one choice among `options`",
   slider: "a number between `min` and `max` (`step`)", chips: "one or several (`multiple`) choices among `options`",
   tabs: "a row of tabs (`tabs`, `value`, `onChanged`); its value is NOT in `state.inputs`", emptyState: "Kino's empty state (`title`, `text`, `icon`)",
@@ -44,7 +44,10 @@ const WIDGET_TEXT = {
   table: "a table of `TableRow`s holding `TableCell`s (`text` or `children`, `colSpan`, `crossAxisAlignment`)",
 };
 /** Properties a widget takes besides the ones contract.json lists in layoutProps (the d.ts has the rest). */
-const WIDGET_PROPS = { list: ["onEndReached", "loadingMore", "done"], titleRail: ["onEndReached", "loadingMore", "done"], titleGrid: ["onEndReached", "loadingMore", "done"], popup: ["onClose", "buttons", "items"] };
+const WIDGET_PROPS = {
+  list: ["onEndReached", "loadingMore", "done", S.listHints.field], titleRail: ["onEndReached", "loadingMore", "done"], titleGrid: ["onEndReached", "loadingMore", "done"],
+  popup: ["onClose", "buttons", "items", S.declaredPopups.anchor.field], text: [S.textTime.field, S.textTime.formatField],
+};
 const GO_TEXT = {
   title: "this plugin's title page (`ref`, `kind`; `id`, `title` and `adult` for a title that is not on the canvas)",
   play: "plays this plugin's title (`ref`, `kind`, as `title`)",
@@ -56,6 +59,8 @@ const GO_TEXT = {
   screen: `this plugin's own screen at \`route\` (at most ${L.maxGoRouteChars} characters) with \`args\` (at most ${n(L.maxGoArgsBytes)} bytes of JSON)`,
   titleByIds: "Kino's own title page for TMDB or IMDb ids, where the person picks any of their sources",
   url: "an https link in the browser, after Kino's own confirmation sheet (a QR code on a TV)",
+  copy: "Kino puts the plugin's text on the clipboard and always shows its own «Copiado» toast (a TV cannot copy)",
+  liveChannel: "the player tunes to an En vivo provider's channel (`provider`, `code`), only for a plugin whose player tab declares `\"kinds\": [\"live\"]`",
 };
 const CONSENTS = () => [
   ["screen", null], ["library", c.kinoLibrary], ["playerPanelTab", c.manifest.panel.contributes], ["playerControl", c.kinoPlayerControl],
@@ -68,7 +73,7 @@ function screenLimitRows() {
   const rows = [
     ["A tree", `depth ${v("maxDepth")}, ${v("maxNodes")} nodes (an accordion's header, a table's row and cell count as one each); in a panel in screen mode depth ${P.maxDepth} and ${P.maxNodes} nodes`],
     ["Lists", `${v("maxListItems")} items in a list, rail, grid, accordion or a choice's \`options\`; ${v("maxTitles")} titles in a whole tree, ${v("maxFlatTitles")} in a rail or grid drawn all at once (inside a scroll, a list, a pop-up or a table cell)`],
-    ["Texts and keys", `a text ${n(v("maxTextChars"))} characters; \`testKey\` ${v("maxTestKeyChars")}; a \`ref\` ${n(v("maxRefChars"))}; the menu entry's \`label\` ${S.labelMaxChars}, the settings button's ${S.settingsButtonLabelMaxChars}`],
+    ["Texts and keys", `a text ${n(v("maxTextChars"))} characters; \`testKey\` ${v("maxTestKeyChars")}; a text field\'s \`trailingLabel\` ${v("maxTrailingLabelChars")}; a \`ref\` ${n(v("maxRefChars"))}; the menu entry's \`label\` ${S.labelMaxChars}, the settings button's ${S.settingsButtonLabelMaxChars}`],
     ["State", `${kb(v("maxStateBytes"))} as JSON (a bigger patch is refused, the old state kept)`],
     ["Calls", `\`screen\` and \`screenEvent\` ${v("callTimeoutMs") / 1000} s each; events one at a time, at least ${v("minEventIntervalMs")} ms apart, at most ${v("eventQueue")} waiting`],
     ["Answers", `${v("maxUiOps")} \`ui\` operations per action or answer; ${v("maxConfigKeys")} settings per \`config\`; ${v("maxPopups")} pop-up at a time; ${v("maxDialogButtons")} buttons in a dialog; ${v("maxMenuItems")} items in a menu; ${v("maxHeroButtons")} buttons in a \`heroCard\``],
@@ -80,7 +85,7 @@ function screenLimitRows() {
     ["`NumberStepper`", `${v("maxStepperDecimals")} decimals at most; numbers at most ${n(v("maxStepperAbs"))} either way`],
     ["`Skeleton`", `1 to ${v("maxSkeletonLines")} lines`],
     ["`DataTable`", `${v("maxTableRows")} rows, ${v("maxTableColumns")} columns, \`colSpan\` 1 to ${v("maxColSpan")}`],
-    ["`go`", `\`route\` ${v("maxGoRouteChars")} characters, \`args\` ${n(v("maxGoArgsBytes"))} bytes; \`titleByIds\`: \`tmdb\` 1 to ${n(S.goTitleByIds.maxTmdb)}, \`season\` 0 to ${S.goTitleByIds.maxSeason}, \`episode\` 1 to ${S.goTitleByIds.maxEpisode}, \`year\` ${S.goTitleByIds.minYear} to ${S.goTitleByIds.maxYear}, \`title\` ${S.goTitleByIds.maxTitleChars}; \`url\`: \`href\` ${n(S.goUrl.maxHrefChars)}, \`title\` ${S.goUrl.maxTitleChars}, one link a second for all plugins and ${S.goUrl.perMinutePerPlugin} a minute per plugin, a QR code up to ${n(S.goUrl.maxQrChars)} characters; at most one page-opening \`go\` every 500 ms`],
+    ["`go`", `\`route\` ${v("maxGoRouteChars")} characters, \`args\` ${n(v("maxGoArgsBytes"))} bytes; \`titleByIds\`: \`tmdb\` 1 to ${n(S.goTitleByIds.maxTmdb)}, \`season\` 0 to ${S.goTitleByIds.maxSeason}, \`episode\` 1 to ${S.goTitleByIds.maxEpisode}, \`year\` ${S.goTitleByIds.minYear} to ${S.goTitleByIds.maxYear}, \`title\` ${S.goTitleByIds.maxTitleChars}; \`url\`: \`href\` ${n(S.goUrl.maxHrefChars)}, \`title\` ${S.goUrl.maxTitleChars}, one link a second for all plugins and ${S.goUrl.perMinutePerPlugin} a minute per plugin, a QR code up to ${n(S.goUrl.maxQrChars)} characters; \`copy\`: \`text\` ${S.goCopy.maxTextChars} characters in ${S.goCopy.maxLines} lines, \`label\` ${S.goCopy.maxLabelChars}, one copy every ${S.goCopy.minIntervalMs} ms and ${S.goCopy.perMinutePerPlugin} a minute per plugin; at most one page-opening \`go\` every 500 ms`],
     ["Search", `\`q\` ${v("maxSearchQueryChars")} characters`],
   ];
   for (const [k, val] of Object.entries(L)) if (!used.has(k)) rows.push([`\`${k}\``, String(val)]);
@@ -119,7 +124,7 @@ export const TABLES = {
     [`\`kino.fetch\` \`maxBytes\` (apiVersion ${c.fetch.maxBytes.apiVersion})`, `${c.fetch.maxBytes.min} to ${n(c.fetch.maxBytes.max)} bytes of the body are read, the answer's \`${c.fetch.maxBytes.field}\` says whether it was cut; out of range: \`invalid_request\``],
     [`Screens (\`screen\`, apiVersion ${S.apiVersion})`, `depth ${L.maxDepth}, ${L.maxNodes} nodes, ${L.maxListItems} items per list, state ${kb(L.maxStateBytes)}, a text ${n(L.maxTextChars)} characters; \`screen\` and \`screenEvent\` ${L.callTimeoutMs / 1000} s each; every number in [Screen limits](#screen-limits)`],
     [`\`kino.library\` (apiVersion ${c.kinoLibrary.apiVersion})`, `\`limit\` default ${c.kinoLibrary.defaultLimit}, at most ${c.kinoLibrary.maxLimit}; at most ${c.kinoLibrary.perMinute} calls a minute per plugin; times rounded to the day, \`progress\` to ${c.kinoLibrary.progressStep}`],
-    [`\`kino.room\` (apiVersion ${R.apiVersion})`, `a payload at most ${n(R.limits.maxPayloadBytes)} bytes and ${R.limits.maxPayloadDepth} levels; ${R.limits.perSecond} messages a second, ${R.limits.perMinute} and ${kb(R.limits.bytesPerMinute)} a minute per member; ${R.limits.minMembers} to ${R.limits.maxMembers} members; ${R.limits.minTtlMin} to ${R.limits.maxTtlMin} minutes (default ${R.limits.defaultTtlMin}); mailbox ${R.limits.mailboxEvents} events or ${R.limits.mailboxMs / 60000} minutes; ${R.limits.maxJoined} joined and ${R.limits.maxHosted} hosted per device, ${R.limits.maxSlotsPerPlugin} per plugin; ${R.limits.joinFailuresBeforeLock} wrong codes lock joins for ${R.limits.lockMs / 1000} s, doubling up to ${R.limits.maxLockMs / 60000} minutes; closed after ${R.limits.backgroundCloseMs / 60000} minutes in the background`],
+    [`\`kino.room\` (apiVersion ${R.apiVersion})`, `a payload at most ${n(R.limits.maxPayloadBytes)} bytes and ${R.limits.maxPayloadDepth} levels; ${R.limits.perSecond} messages a second, ${R.limits.perMinute} and ${kb(R.limits.bytesPerMinute)} a minute per member; ${R.limits.minMembers} to ${R.limits.maxMembers} members; ${R.limits.minTtlMin} to ${R.limits.maxTtlMin} minutes (default ${R.limits.defaultTtlMin}); mailbox ${R.limits.mailboxEvents} events or ${R.limits.mailboxMs / 60000} minutes; ${R.limits.maxJoined} joined and ${R.limits.maxHosted} hosted per device, ${R.limits.maxSlotsPerPlugin} per plugin; ${R.limits.joinFailuresBeforeLock} wrong codes lock joins for ${R.limits.lockMs / 1000} s, doubling up to ${R.limits.maxLockMs / 60000} minutes; closed after ${R.limits.backgroundCloseMinutes} minutes in the background (a hosted room shows Kino's notification meanwhile)`],
     [`Jobs (\`schedule\`, apiVersion ${J.apiVersion})`, `1 to ${J.manifest.maxJobs} jobs, every ${J.manifest.minEveryMin} to ${n(J.manifest.maxEveryMin)} minutes; one run at most ${J.limits.runTimeoutMs / 1000} s, ${J.limits.maxFetches} requests made one at a time, ${kb(J.limits.maxResponseBytes)} of answers and ${kb(J.limits.maxStorageWriteBytes)} written to \`kino.storage\`; ${J.limits.maxRunsPerDay} runs a day per plugin; a failure waits ${J.limits.backoffBaseMin} minutes, doubling up to ${J.limits.backoffMaxMin / 60} h, and ${J.limits.failuresToPause} in a row pause the job`],
     [`\`kino.ai\` (apiVersion ${A.apiVersion})`, `a prompt at most ${n(A.limits.maxPromptBytes)} bytes, \`system\` ${n(A.limits.maxSystemBytes)}; the reply cut at \`maxChars\` (1 to ${n(A.limits.maxChars)}, default ${n(A.limits.defaultMaxChars)}); ${A.limits.perMinute} asks in any minute, ${A.limits.perDay} a day and ${A.limits.maxInFlight} at a time per plugin; ${A.limits.devicePerDay} a day and ${A.limits.deviceMaxInFlight} at a time for every plugin of the device together; ${A.limits.timeoutMs / 1000} s an ask`],
     [`\`kino.shared\` (apiVersion ${SH.apiVersion})`, `${SH.limits.maxKeys} keys of at most ${SH.limits.maxKeyChars} characters per plugin; a value at most ${kb(SH.limits.maxValueBytes)} and ${SH.limits.maxDepth} levels, ${kb(SH.limits.maxPluginBytes)} in all; ${SH.limits.writesPerMinute} writes a minute; a key's new value travels at most once every ${SH.limits.syncEveryMs / 1000} s`],
@@ -138,7 +143,7 @@ export const TABLES = {
       padding: `${S.spacingScale.join(", ")}, or per side (\`x\`, \`y\`, \`top\`, \`end\`, \`bottom\`, \`start\`)`,
       margin: `${S.spacingScale.join(", ")}, or per side`,
       gap: S.spacingScale.join(", "),
-      radius: S.radiusTokens.map((x) => `\`${x}\``).join(", "),
+      radius: `${S.radiusTokens.map((x) => `\`${x}\``).join(", ")}, or per corner (${S.corners.keys.map((x) => `\`${x}\``).join(", ")}; an omitted one \`${S.corners.default}\`)`,
       w: S.sizeScale.join(", "), h: S.sizeScale.join(", "), minH: S.sizeScale.join(", "),
       fill: "`true`: the parent's whole width",
       weight: `1 to ${S.limits.maxWeight}: its share of a \`Row\` or \`Column\``,
@@ -147,13 +152,14 @@ export const TABLES = {
       color: S.colorRoles.map((x) => `\`${x}\``).join(", "),
       span: `1 to ${S.limits.gridColumns} or \`"auto"\`, in a \`Row\` with \`wrap: true\``,
       offset: `0 to ${S.limits.gridColumns - 1}, in a \`Row\` with \`wrap: true\``,
+      maxWidthFraction: `${S.maxWidthFraction.min} to ${S.maxWidthFraction.max} in steps of ${S.maxWidthFraction.step}: at most that share of the parent's width (exactly, with \`fill\`)`,
     }[p] || "see `kino.d.ts`";
     const name = canon(p);
     return [`\`${name}\``, name === p ? "" : `\`${p}\``, values];
   })),
   screenGo: () => table(["`go`", "What opens", "Sent from"], S.goShapes.map((g) => {
     if (!GO_TEXT[g]) throw new Error(`guide-tables: no description for the go shape ${g}`);
-    const from = g === "titleByIds" || g === "url"
+    const from = g === "titleByIds" || g === "url" || g === "copy" || g === "liveChannel"
       ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} (a tap, a submit, the answer to one, a pop-up's button, a panel press)`
       : g === "screen" ? "a tap, or an answer, the answer to the reserved `open` included (never a timer's or a pop-up's `onClose`)" : "a tap, or the answer to an event (never the answer to `open`, to a timer or to a pop-up's `onClose`)";
     return [`\`${g}\``, GO_TEXT[g], from];

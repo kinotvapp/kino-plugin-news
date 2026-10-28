@@ -5,8 +5,8 @@
 // invalid node, style value, action or field is dropped with a reason. Like panel.mjs it reads the answer the way org.json
 // does (the answer crosses to Kino as JSON), and like the Kotlin it walks a JSON object's keys SORTED wherever the walk
 // can log, so the lines come out in the same order. plugins/sdk/test/screen-cases.json is the case table both sides share.
-import { contract, isUserServer, javaDouble, screenGoOf, screenItems, titleByIdsOf, urlGoOf } from "./contract.mjs";
-import { cappedLog, httpsImage, panelAccentOf, panelMessageOf, panelPlayerOf, panelRefreshOf, panelTabsOf } from "./panel.mjs";
+import { contract, isUserServer, javaDouble, screenGoOf, screenItems, titleByIdsOf, urlGoOf, copyGoOf, liveChannelGoOf } from "./contract.mjs";
+import { badgeOf, cappedLog, httpsImage, panelAccentOf, panelMessageOf, panelPlayerOf, panelRefreshOf, panelTabsOf } from "./panel.mjs";
 
 // ---------- limits and name tables (ScreenLimits, ScreenWidgets; numbers come from the contract file) ----------
 
@@ -236,8 +236,16 @@ function settingsModel(raw) {
     options: Array.isArray(s.options) ? s.options.filter(isObj).map((o) => o.value) : [],
     fields: Array.isArray(s.fields) ? s.fields.filter(isObj).map((f) => ({ key: f.key, type: f.type, required: f.required === true })) : [],
     max: Number.isInteger(s.max) ? s.max : contract.settings.list.defaultMaxEntries,
+    // apiVersion 14 `unlockWith` (SettingLocks): the lock and the value it starts at (a toggle without a default is off, a
+    // select at its first option).
+    unlockWith: typeof s.unlockWith === "string" ? s.unlockWith : null,
+    start: s.default !== undefined && s.default !== null ? s.default
+      : s.type === "toggle" ? false : s.type === "select" && Array.isArray(s.options) && isObj(s.options[0]) ? s.options[0].value : null,
   }));
 }
+
+/** ScreenConfig.lockedWhy: why a `config` write moving a locked setting away from its default is refused. */
+const lockedWhy = (s) => contract.settings.unlockWith.lockedWhy.replace("{value}", s.unlockWith);
 
 const maxChars = (type) => contract.settings.types[type]?.maxChars ?? 0;
 
@@ -245,6 +253,8 @@ const maxChars = (type) => contract.settings.types[type]?.maxChars ?? 0;
 function configValue(s, raw, note) {
   const emptied = () => (s.required ? { why: "is required, it cannot be emptied" } : { value: null });
   if (absent(raw)) return emptied();
+  // A locked setting moves away from its default only through Kino's form, after the code (SettingLocks.refusesPluginWrite).
+  if (s.unlockWith && raw !== s.start) return { why: lockedWhy(s) };
   switch (s.type) {
     case "toggle": return typeof raw === "boolean" ? { value: raw } : { why: "is not true or false" };
     case "select": return typeof raw === "string" && s.options.includes(raw) ? { value: raw } : { why: "is not one of its options" };
@@ -308,6 +318,8 @@ function bindProblem(type, multiple, key, s) {
   const k = key.slice(0, 40);
   if (!s) return `bind "${k}" is not one of this plugin's settings`;
   if (!S.configTypes.includes(s.type)) return `bind "${k}" is of type ${s.type}, never written from a screen`;
+  // A locked setting is changed only in Kino's own form (a settings node), which asks the code.
+  if (s.unlockWith) return contract.settings.unlockWith.lockedBind.replace("{key}", k).replace("{value}", s.unlockWith);
   const holds = type === "chips" && multiple ? [] : S.bindHolds[type] || [];
   return holds.includes(s.type) ? null : `bind "${k}" is of type ${s.type}, which this field cannot hold`;
 }
@@ -489,7 +501,9 @@ class Reader {
     if (TABLE_PARTS.includes(type)) { this.log(`screen: ${type} outside a table, dropped`); return null; }
     if (!WIDGETS.includes(type)) { this.log(`screen: unknown widget "${type.slice(0, 40)}", dropped`); return null; }
     if (!this.widgets.has(type)) { this.log(`screen: widget "${type}" is not drawn by this Kino, dropped`); return null; }
-    if (this.inPanel && PANEL_SCREEN.notDrawn.includes(type)) { this.log(`screen: ${type} is not available in the player panel, dropped`); return null; }
+    // Task 15: an anchored pop-up is drawn in the panel after all (a popover inside the drawer).
+    const anchoredHere = (PANEL_SCREEN.drawnWhenAnchored ?? []).includes(type) && typeof opt(o, "anchor") === "string" && ID.test(o.anchor);
+    if (this.inPanel && PANEL_SCREEN.notDrawn.includes(type) && !anchoredHere) { this.log(`screen: ${type} is not available in the player panel, dropped`); return null; }
     const drop = (why) => { this.log(`screen: ${type} ${why}, dropped`); return null; };
     if (type === FORM && this.formKey !== null) return drop("inside a form (forms do not nest)");
     if (type === FORM && this.answerBody > 0) return drop("in an answer's pop-up");
@@ -553,11 +567,51 @@ class Reader {
     const t = opt(o, "testKey");
     const testKey = typeof t === "string" && t !== "" && t.length <= LIMITS.maxTestKeyChars ? t : null;
     if (testKey === null && present(o, "testKey")) this.log(`screen: ${type} testKey is not a string of 1 to ${LIMITS.maxTestKeyChars} characters, dropped`);
-    const common = (p, byClass) => ({ key, enabled, hidden, style: p.style, onTap: p.onTap, onLongPress: p.onLongPress, devices, sizes, testKey, byClass });
+    // Task 15: the properties a family of nodes shares (never per size: a map there was dropped above, logged).
+    const shared = this.sharedProps(o, type, passes[0][1], maps);
+    const common = (p, byClass) => ({ key, enabled, hidden, style: p.style, onTap: p.onTap, onLongPress: p.onLongPress, devices, sizes, testKey, byClass, ...shared });
     const byClass = {};
     if (maps !== null) for (const [cls, p] of passes) byClass[cls] = node(type, p.build(false, key), common(p, {}));
     const base = passes[0][1];
     return node(type, base.build(true, key), common(base, byClass));
+  }
+
+  /**
+   * PluginScreenOutput.sharedProps (Task 15): `autofocus` (a node that takes focus: sharedProps.focusableWidgets, or any node
+   * with an onTap or an onLongPress; never a QR), `selected` and `badge` (a button, a card with an onTap), read once from the
+   * node ([base] is its first pass: its actions). A value on a node that does not take it, or not of its shape, is ignored,
+   * logged. A per-size map on one of them was already dropped, logged ([maps]).
+   */
+  sharedProps(o, type, base, maps) {
+    const SH = S.sharedProps;
+    const given = (name) => present(o, name) && !(maps !== null && maps.has(name));
+    const pressable = type === "button" || (type === "card" && base.onTap !== null);
+    let autofocus = false;
+    if (given("autofocus")) {
+      const v = o.autofocus;
+      if (typeof v !== "boolean") this.log(`screen: ${type} autofocus ${fmt(v)} is not true or false, ignored`);
+      else {
+        const focusable = type !== "qr" && (SH.focusableWidgets.includes(type) || base.onTap !== null || base.onLongPress !== null);
+        if (v && !focusable) this.log(`screen: ${type} autofocus works only on a node that takes focus, ignored`);
+        else autofocus = v;
+      }
+    }
+    const onPressable = (name) => {
+      if (pressable) return true;
+      if (type === "chips" || type === "tabs") this.log(`screen: ${type} ${name} is not read: its value says which is picked, ignored`);
+      else if (type === "card") this.log(`screen: card ${name} needs an onTap, ignored`);
+      else this.log(`screen: ${type} ${name} works only on a button or a card with onTap, ignored`);
+      return false;
+    };
+    let selected = null;
+    if (given("selected")) {
+      const v = o.selected;
+      if (typeof v !== "boolean") this.log(`screen: ${type} selected ${fmt(v)} is not true or false, ignored`);
+      else if (onPressable("selected")) selected = v;
+    }
+    let badge = null;
+    if (given("badge") && onPressable("badge")) badge = badgeOf(o.badge, this.lang, `screen: ${type}`, this.log);
+    return { autofocus, selected, badge };
   }
 
   /** What one pass over a node's own fields read: the style, the actions and the widget's builder. */
@@ -686,8 +740,16 @@ class Reader {
       }
       case "grid": { const columns = this.int(o, type, "columns", 1, LIMITS.maxGridColumns, 2); return (k) => ({ children: kids(k), columns }); }
       case "text": {
+        // Task 15: a time Kino writes itself; with one, the text is only its prefix (it may be empty).
+        const TT = S.textTime;
+        let time = null;
+        if (present(o, TT.field)) {
+          const v = o[TT.field];
+          if (typeof v === "number" && Number.isFinite(v) && v === Math.floor(v) && v >= 0 && v <= TT.maxMs) time = v;
+          else this.log(`screen: text time ${fmt(v)} is not a time in ms since 1970, dropped`);
+        }
         const text = t("text");
-        if (text === "") return fail("is empty");
+        if (text === "" && time === null) return fail("is empty");
         const styleName = this.enumOf(o, type, "style", [...TEXT_STYLES, ...Object.keys(TEXT_STYLE_ALIASES)], "p", TEXT_STYLES);
         const variant = TEXT_STYLE_ALIASES[styleName] ?? styleName;
         const maxLines = has(o, "maxLines") ? this.intOrNull(o, type, "maxLines", 1, INT_MAX) : null;
@@ -696,7 +758,9 @@ class Reader {
           if (typeof o.bold === "boolean") bold = o.bold;
           else this.log(`screen: text bold ${fmt(o.bold)} is not true or false, ignored`);
         }
-        return () => ({ text, variant, maxLines, bold });
+        const timeFormat = this.enumOf(o, type, TT.formatField, TT.formats, TT.formats[0]);
+        if (time === null && present(o, TT.formatField)) this.log("screen: text timeFormat without a time, ignored");
+        return () => ({ text, variant, maxLines, bold, time, timeFormat });
       }
       case "image": {
         // With a fallback (Task 7i-1) an image with no url Kino may load is kept: it draws the fallback.
@@ -749,6 +813,10 @@ class Reader {
       case "list": {
         const columns = this.int(o, type, "columns", 1, LIMITS.maxGridColumns, 1);
         const paging = this.paging(o, type);
+        // Task 14: the list opens at its end and follows new items while the person is there.
+        const stickToBottom = this.flag(o, type, "stickToBottom");
+        // Task 15: Kino's «↓ Nuevos» chip while new items wait below.
+        const newItemsHint = this.flag(o, type, S.listHints.field);
         return (k) => {
           const items = k ? this.flatWhile(false, () => this.children(o, depth, "items", LIMITS.maxListItems)) : [];
           let empty = null;
@@ -758,7 +826,7 @@ class Reader {
             else if (isObj(e)) empty = this.flatWhile(false, () => this.node(e, depth + 1));
             else this.log("screen: list empty is not a node, dropped");
           }
-          return { items, empty, columns, paging };
+          return { items, empty, columns, paging, stickToBottom, newItemsHint };
         };
       }
       case "button": {
@@ -786,7 +854,8 @@ class Reader {
         const onChange = this.actions(opt(o, "onChange"), o, type, "onChange");
         const onSubmit = this.actions(opt(o, "onSubmit"), o, type, "onSubmit");
         const field = this.fieldProps(o, type, maxLength);
-        return () => ({ label, hint, kind, maxLength, value, onChange, onSubmit, field });
+        const trailing = this.trailingOf(o, type);
+        return () => ({ label, hint, kind, maxLength, value, onChange, onSubmit, field, ...(type === "textInput" ? { trailing } : {}) });
       }
       case "dropdown": case "radioGroup": {
         const options = this.options(opt(o, "options"), type, "option");
@@ -921,20 +990,27 @@ class Reader {
         if (typeof kind !== "string" || !S.popupKinds.includes(kind)) return fail(`kind ${fmt(kind)} is not ${S.popupKinds.join(", ")}`);
         const title = t("title");
         const onClose = this.popupOnClose(o);
+        // Task 15: the node it is drawn next to (a popover); a key Kino cannot read is ignored, logged.
+        let anchor = null;
+        const a = opt(o, S.declaredPopups.anchor.field);
+        if (!absent(a)) {
+          if (typeof a === "string" && ID.test(a)) anchor = a;
+          else this.log(`screen: popup anchor ${fmt(a)} is not a valid key, ignored`);
+        }
         // A field another kind takes is ignored, logged.
         const foreign = kind === "dialog" ? ["items"] : kind === "sheet" ? ["buttons", "items"] : ["buttons", "children"];
         for (const f of foreign) if (present(o, f)) this.log(`screen: popup ${kind} does not take ${f}, ignored`);
         if (kind === "menu") {
           const items = this.menuItems(opt(o, "items"), POPUP);
           if (items.length === 0) return fail(`needs 1 to ${LIMITS.maxMenuItems} valid items`);
-          return () => ({ kind, title, children: [], buttons: [], items, onClose });
+          return () => ({ kind, title, children: [], buttons: [], items, onClose, anchor });
         }
         // As an answer's: a dialog or sheet with neither a title nor a body is dropped.
         const children = opt(o, "children");
         if (title === "" && !(Array.isArray(children) && children.length > 0)) return fail("has neither a title nor a body");
         const buttons = kind === "dialog" ? this.buttons(opt(o, "buttons")) : [];
         // A pop-up's body is drawn over the canvas, outside any form around the pop-up.
-        return (k) => ({ kind, title, children: k ? this.flatWhile(false, () => this.inForm(null, () => this.children(o, depth))) : [], buttons, items: [], onClose });
+        return (k) => ({ kind, title, children: k ? this.flatWhile(false, () => this.inForm(null, () => this.children(o, depth))) : [], buttons, items: [], onClose, anchor });
       }
       case FORM: {
         const onSubmit = this.actions(opt(o, "onSubmit"), o, type, "onSubmit");
@@ -1407,6 +1483,29 @@ class Reader {
     return out;
   }
 
+  /**
+   * Task 8y (PluginScreenOutput.trailingOf): a text field's trailing icon action { icon, label, onTap }, all three of
+   * `trailingIcon`, `trailingLabel` and `onTrailingTap`, or null. A bad or missing part leaves the field without the icon
+   * (logged, the field kept); a `textArea` takes none.
+   */
+  trailingOf(o, type) {
+    const raw = opt(o, "trailingIcon");
+    const tapRaw = opt(o, "onTrailingTap");
+    if (type !== "textInput") {
+      if (!absent(raw) || !absent(tapRaw)) this.log(`screen: ${type} trailingIcon works only on a one-line field, ignored`);
+      return null;
+    }
+    // No icon (in this width class: a per-size map may leave one out): the action has nothing to hang on, silently.
+    if (absent(raw)) return null;
+    if (typeof raw !== "string" || !ICONS.includes(raw)) { this.log(`screen: ${type} trailingIcon ${fmt(raw)} is not a Kino icon, ignored`); return null; }
+    const label = kotlinTrim(this.text(o, "trailingLabel"));
+    if (label === "") { this.log(`screen: ${type} trailingIcon needs a trailingLabel, ignored`); return null; }
+    if (label.length > LIMITS.maxTrailingLabelChars) { this.log(`screen: ${type} trailingLabel is over ${LIMITS.maxTrailingLabelChars} characters, its icon ignored`); return null; }
+    const onTap = this.actions(tapRaw, o, type, "onTrailingTap");
+    if (onTap === null) { this.log(`screen: ${type} trailingIcon needs a valid onTrailingTap, ignored`); return null; }
+    return { icon: raw, label, onTap };
+  }
+
   iconOf(o, type) {
     const i = opt(o, "icon");
     if (absent(i)) return null;
@@ -1438,7 +1537,13 @@ class Reader {
       if (value === null || value === "" || value.length > LIMITS.maxTextChars || label === "") { this.log(`screen: ${type} ${what} ${i} needs a value and a label, dropped`); continue; }
       if (seen.has(value)) { this.log(`screen: ${type} ${what} ${i} repeats value ${fmt(value)}, dropped`); continue; }
       seen.add(value);
-      out.push({ value, label });
+      // Task 15: a tab's badge, beside its label; any other choice takes none.
+      let badge = null;
+      if (present(e, "badge")) {
+        if (type === "tabs") badge = badgeOf(e.badge, this.lang, `screen: ${type} ${what} ${i}`, this.log);
+        else this.log(`screen: ${type} ${what} ${i} badge works only on a tab, ignored`);
+      }
+      out.push({ value, label, badge });
     }
     return out;
   }
@@ -1511,10 +1616,38 @@ class Reader {
     };
     const size = (name) => (present(o, name) ? scaled(o[name], name, S.sizeScale, "size") : null);
     const radius = () => {
-      if (!present(o, "radius")) return null;
+      if (!present(o, "radius") || isObj(o.radius)) return null;
       if (typeof o.radius === "string" && S.radiusTokens.includes(o.radius)) return o.radius;
       this.log(`screen: ${type} radius ${fmt(o.radius)} is not a radius token, dropped`);
       return null;
+    };
+    // Task 15: `borderRadius` per corner, `{ topStart, topEnd, bottomStart, bottomEnd }` (an omitted corner is the default).
+    const corners = () => {
+      if (!isObj(opt(o, "radius"))) return null;
+      const m = o.radius;
+      const C = S.corners;
+      for (const k of Object.keys(m).sort()) if (!C.keys.includes(k)) this.log(`screen: ${type} radius.${k.slice(0, 40)} is not a corner, ignored`);
+      const out = {};
+      for (const k of C.keys) {
+        if (!present(m, k)) { out[k] = C.default; continue; }
+        if (typeof m[k] === "string" && S.radiusTokens.includes(m[k])) { out[k] = m[k]; continue; }
+        this.log(`screen: ${type} radius.${k} ${fmt(m[k])} is not a radius token, dropped`);
+        return null;
+      }
+      return out;
+    };
+    // Task 15: a share of the parent's width, min to max in steps.
+    const fraction = () => {
+      if (!present(o, "maxWidthFraction")) return null;
+      const F = S.maxWidthFraction;
+      const v = o.maxWidthFraction;
+      const d = typeof v === "number" && Number.isFinite(v) ? v : null;
+      const steps = d === null ? 0 : (d - F.min) / F.step;
+      if (d === null || d < F.min - 1e-9 || d > F.max + 1e-9 || Math.abs(steps - Math.round(steps)) > 1e-6) {
+        this.log(`screen: ${type} maxWidthFraction ${fmt(v)} is not 0.25 to 1 in steps of 0.05, dropped`);
+        return null;
+      }
+      return Math.round(d * 100) / 100;
     };
     const color = () => {
       if (!present(o, "color")) return null;
@@ -1540,6 +1673,7 @@ class Reader {
       margin: edges("margin"),
       gap: present(o, "gap") ? scaled(o.gap, "gap", S.spacingScale, "spacing") : null,
       radius: radius(),
+      corners: corners(),
       w: size("w"),
       h: size("h"),
       minH: size("minH"),
@@ -1571,7 +1705,7 @@ class Reader {
       this.log(`screen: ${type} offset ${offset} and span ${span} pass ${cols} columns, the offset lowered to ${cols - span}`);
       offset = cols - span;
     }
-    return { ...base, span, offset };
+    return { ...base, span, offset, maxWidthFraction: fraction() };
   }
 
   // ---- actions ----
@@ -1672,7 +1806,8 @@ class Reader {
   uiOp(raw, where) {
     const o = isObj(raw) ? raw : null;
     const names = o ? Object.keys(o) : [];
-    const op = names.length === 1 ? names[0] : null;
+    // Task 15: `toggle` alone takes a second field, `prop` (what it flips).
+    const op = names.length === 2 && names.includes("toggle") && names.includes("prop") ? "toggle" : names.length === 1 ? names[0] : null;
     if (o === null || op === null || !S.uiOps.includes(op)) {
       const name = o ? names.sort()[0] : undefined;
       this.log(`${where} ui operation ${fmt(name ?? raw)} is unknown, dropped`);
@@ -1708,10 +1843,16 @@ class Reader {
       return { set: { key: k, value } };
     }
     const k = key(o[op]);
-    return k === null ? null : { [op]: k };
+    if (k === null) return null;
+    if (op === "toggle" && !absent(o.prop)) {
+      const props = S.sharedProps.toggleProps;
+      if (typeof o.prop !== "string" || !props.includes(o.prop)) { this.log(`${where} ui.toggle prop ${fmt(o.prop)} is not ${props.join(" or ")}, dropped`); return null; }
+      return o.prop === props[0] ? { toggle: k } : { toggle: k, prop: o.prop };
+    }
+    return { [op]: k };
   }
 
-  /** Exactly one of the ten go shapes, logged under [where] when it is not. */
+  /** Exactly one of the twelve go shapes, logged under [where] when it is not. */
   goOf(o, where) {
     const keys = Object.keys(o);
     const k = keys.length === 1 && GO_KEYS.includes(keys[0]) ? keys[0] : null;
@@ -1729,6 +1870,14 @@ class Reader {
     if (k === "url") {
       const g = urlGoOf(v, (why) => this.log(`${where} go.url ${why}, dropped`));
       return g === null ? null : { url: g };
+    }
+    if (k === "copy") {
+      const g = copyGoOf(v, (why) => this.log(`${where} go.copy ${why}, dropped`));
+      return g === null ? null : { copy: g };
+    }
+    if (k === "liveChannel") {
+      const g = liveChannelGoOf(v, (why) => this.log(`${where} go.liveChannel ${why}, dropped`));
+      return g === null ? null : { liveChannel: g };
     }
     if (k === "section" || k === "categories" || k === "close") return v === true ? { [k]: true } : bad("must be true");
     if (!isObj(v)) return bad("is not an object");
@@ -1867,14 +2016,32 @@ export function checkScreenTree(value, lang = "es", widgets = WIDGETS, { allowSe
   const dropped = [];
   const v = wire(value);
   let every = [];
+  let layout = SCREEN_LAYOUT.values[0];
   const tree = cappedLog((line) => dropped.push(line), "screen", (capped) => {
     if (!isObj(v)) { capped("screen: the tree is not a JSON object"); return null; }
     const root = new Reader(lang, new Set(widgets ?? WIDGETS), capped, allowSeries, settingsModel(settings)).node(v, 1);
-    // The root's timers, read after the tree (PluginScreenOutput.frame): their lines come last.
-    if (root !== null) every = timersOf(opt(v, "every"), capped);
+    // The root's timers, read after the tree (PluginScreenOutput.frame): their lines come last; then its layout (Task 14).
+    if (root !== null) {
+      every = timersOf(opt(v, "every"), capped);
+      layout = layoutOf(opt(v, SCREEN_LAYOUT.field), "screen", capped);
+    }
     return root;
   });
-  return { tree, dropped, every };
+  return { tree, dropped, every, layout };
+}
+
+/** contract.manifest.screen.layout (Task 14): the screen result's `layout` field and its values, the default first. */
+export const SCREEN_LAYOUT = contract.manifest.screen.layout;
+
+/**
+ * PluginScreenOutput.layoutOf (Task 14): a screen result's `layout`; absent or null is "scroll", silently; any other value
+ * outside the contract's values is logged under [where] and read as "scroll".
+ */
+export function layoutOf(v, where, log) {
+  if (absent(v)) return SCREEN_LAYOUT.values[0];
+  if (SCREEN_LAYOUT.values.includes(v)) return v;
+  log(`${where}: layout ${fmt(v)} is not ${SCREEN_LAYOUT.values.join(" or ")}, read as ${SCREEN_LAYOUT.values[0]}`);
+  return SCREEN_LAYOUT.values[0];
 }
 
 /**
@@ -2086,6 +2253,7 @@ function routeOf(raw, log) {
 /** contract.output.panel.screen: the screen-format panel's limits and fields. */
 export const PANEL_SCREEN = contract.output.panel.screen;
 const NO_EVERY = "panel: every is not available in the player panel (refreshMs is its periodic call), dropped";
+const LAYOUT_ON_ROOT = "panel: layout belongs on the panel result beside root, the root's is ignored";
 
 /**
  * PanelScreenOutput.isScreen: whether a `panel` result is a screen-format panel (`format: "screen"` from a plugin of apiVersion
@@ -2126,11 +2294,14 @@ export function checkPanelScreen(value, lang = "es", { allowSeries = true, setti
     const raw = opt(v, "root");
     if (!isObj(raw)) { capped("panel: root is not a node, the whole panel invalid"); return null; }
     if (has(raw, "every")) capped(NO_EVERY);
+    // Task 14: a panel's layout sits on the result, beside root (a screen's sits on its root object).
+    if (has(raw, SCREEN_LAYOUT.field)) capped(LAYOUT_ON_ROOT);
     const root = new Reader(lang, new Set(WIDGETS), capped, allowSeries, settingsModel(settings), { maxDepth: PANEL_SCREEN.maxDepth, maxNodes: PANEL_SCREEN.maxNodes, inPanel: true }).node(raw, 1);
     if (root === null) return null;
     // Task 8j: the result's own player (a refreshMs tick's): honoured only with the playerControl capability.
     const player = panelPlayerOf(opt(v, "player"), capped);
-    return { root, title, accent, refreshMs, tabs, tab, ...(player ? { player } : {}) };
+    const layout = layoutOf(opt(v, SCREEN_LAYOUT.field), "panel", capped);
+    return { root, title, accent, refreshMs, tabs, tab, layout, ...(player ? { player } : {}) };
   });
   return { panel, dropped };
 }
@@ -2265,7 +2436,7 @@ export function printScreenTree(n) {
     if (v === null || v === undefined) return undefined;
     if (k === "enabled" && v === true) return undefined;
     if (k === "hidden" && v === false) return undefined;
-    if ((k === "fill" || k === "close" || k === "pop" || k === "withheld") && v === false) return undefined;
+    if ((k === "fill" || k === "close" || k === "pop" || k === "withheld" || k === "autofocus" || k === "newItemsHint") && v === false) return undefined;
     if (k === "byClass" && isObj(v) && Object.keys(v).length === 0) return undefined;
     if (k === "field" && isObj(v) && Object.values(v).every((x) => x === null || x === false)) return undefined;
     if (k === "style" && isObj(v) && Object.values(v).every((x) => x === null || x === false)) return undefined;

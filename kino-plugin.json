@@ -1,7 +1,7 @@
 {
   "id": "news",
   "name": "Solo noticias",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "apiVersion": 14,
   "entry": "plugin.js",
   "description": "Noticias de las películas y series que viste y de tus temas, en tarjetas, desde Google Noticias. Actualización automática e IA opcionales. No oficial: sin relación con Google. (News about what you watched and your own topics, from Google News. Unofficial: not affiliated with Google.)",
@@ -77,13 +77,14 @@
       "hintEn": "The titles you watched are sent to Google News as searches"
     },
     {
-      "key": "sampleLibrary",
-      "label": "Títulos de ejemplo",
-      "labelEn": "Sample titles",
+      "key": "hideAdult",
+      "label": "No mostrar noticias +18",
+      "labelEn": "Hide 18+ news",
       "type": "toggle",
-      "default": false,
-      "hint": "Avatar, Breaking Bad, Dune… como si los hubieras visto",
-      "hintEn": "Avatar, Breaking Bad, Dune… as if you had watched them"
+      "default": true,
+      "unlockWith": "adultCode",
+      "hint": "Filtro básico por palabras: puede no detectar todo",
+      "hintEn": "A basic word filter: it may not catch everything"
     },
     {
       "key": "libraryCount",
@@ -110,6 +111,6 @@
   ],
   "signature": {
     "authorKey": "82b87b938e0a95b142467c815a8823cb54310a13a828c3c4c77b1eda43294ae6",
-    "value": "88b5f2badb96f926c6a89fce2f2ce61309992bf635aec845a902681cf38580065dc117f9b94ad9da9fdab02e87c62e4d038f685cb90eb0cec545f2386f68600d"
+    "value": "a35a6d04813d476775bcc0f76998b942a4ad00c2ca9a4041ac96c31bd5e6b778d97c8814acb4d0610d7f9ebd7997fbda64f9444c9b75d8523ceb6de49b456700"
   }
 }

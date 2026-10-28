@@ -2602,11 +2602,12 @@ export function roomName(raw, max) {
   return points.length <= max ? s : points.slice(0, max).join("").trim();
 }
 
-/** A typed room code as Kino reads it (PluginRoomCrypto.normalizeCode): spaces and hyphens dropped, exactly codeDigits digits, or null. */
+/** A typed room code as Kino reads it (PluginRoomCrypto.normalizeCode): spaces and hyphens dropped, codeDigits.min to .max digits, or null. */
 export function roomCode(raw) {
   if (typeof raw !== "string") return null;
   const s = raw.replace(/[ -]/g, "");
-  return new RegExp(`^[0-9]{${RL.codeDigits}}$`).test(s) ? s : null;
+  const D = contract.kinoRoom.codeDigits;
+  return new RegExp(`^[0-9]{${D.min},${D.max}}$`).test(s) ? s : null;
 }
 
 /** One member's sending budget (RoomRateWindow): perSecond, perMinute and bytesPerMinute. */
@@ -2709,18 +2710,21 @@ function kitRoomApi(manifest, kitRoom, { revoked, callFunction, syncCall, now })
       const o = opts(options);
       const ttl = intIn(o, "ttlMin", RL.minTtlMin, RL.maxTtlMin, RL.defaultTtlMin);
       const max = intIn(o, "max", RL.minMembers, RL.maxMembers, RL.defaultMembers);
+      // Task 8w: a shorter code on request (contract.kinoRoom.codeDigits).
+      const digits = intIn(o, "codeDigits", R.codeDigits.min, R.codeDigits.max, R.codeDigits.default);
       let code = null;
       let expiresAtMs = now() + ttl * 60_000;
       if (o.code !== undefined) {
         code = roomCode(o.code);
-        if (!code) throw bad(`code must be ${RL.codeDigits} digits`);
+        if (!code) throw bad(`code must be ${R.codeDigits.min} to ${R.codeDigits.max} digits`);
+        if (o.codeDigits !== undefined && o.codeDigits !== code.length) throw bad("codeDigits does not match the code");
         const inRoom = kitRoom.joined.find((j) => j.code === code)?.expiresAtMs ?? (kitRoom.created.get(code) > now() ? kitRoom.created.get(code) : undefined);
         if (inRoom === undefined) throw deny(".open: that code is not of a room this plugin is in");
         expiresAtMs = Math.min(expiresAtMs, inRoom);
       }
       if (kitRoom.hosted) throw kinoError("room_busy", "kino.room.open: this device already hosts a room");
       if (kitRoom.joined.length >= RL.maxSlotsPerPlugin) throw kinoError("room_busy", `kino.room: this plugin already holds ${RL.maxSlotsPerPlugin} of this device's rooms`);
-      code = code || Array.from({ length: RL.codeDigits }, () => Math.floor(Math.random() * 10)).join("");
+      code = code || Array.from({ length: digits }, () => Math.floor(Math.random() * 10)).join("");
       const words = `kit-room-words-${kitRoom.created.size + 1}`;
       const mailbox = roomMailbox(now);
       const hosted = { code, words, expiresAtMs, max, mailbox, rate: roomRateWindow(now), name: roomName(o.name, RL.maxHostNameChars), members: [{ memberId: R.hostId, name: roomName(o.name, RL.maxHostNameChars) }] };
@@ -2736,13 +2740,19 @@ function kitRoomApi(manifest, kitRoom, { revoked, callFunction, syncCall, now })
       const words = typeof o.words === "string" ? o.words.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0].replace(/\.trycloudflare\.com$/, "") : "";
       if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(words)) throw bad("words are the endpoint's words");
       const code = roomCode(o.code);
-      if (!code) throw bad(`code must be ${RL.codeDigits} digits`);
+      if (!code) throw bad(`code must be ${R.codeDigits.min} to ${R.codeDigits.max} digits`);
       const same = kitRoom.joined.find((j) => j.code === code);
       if (!same && kitRoom.joined.length >= RL.maxJoined) throw kinoError("room_busy", `kino.room.join: this device is already in ${RL.maxJoined} rooms`);
       if (!same && kitRoom.joined.length + (kitRoom.hosted ? 1 : 0) >= RL.maxSlotsPerPlugin) throw kinoError("room_busy", `kino.room: this plugin already holds ${RL.maxSlotsPerPlugin} of this device's rooms`);
       if (kitRoom.hosted && kitRoom.hosted.words === words) throw bad("that is this device's own room");
       if (words !== kitRoom.remote.words) throw kinoError("room_unreachable", "kino.room: the room can't be reached");
-      if (code !== kitRoom.remote.code) throw kinoError("room_denied", "kino.room: wrong code");
+      // Task 8w: after limits.maxFailedJoins wrong codes in all, the remote room closes itself, as the app's host does.
+      if (kitRoom.remote.closed) throw kinoError("room_closed", "kino.room: the room is closed");
+      if (code !== kitRoom.remote.code) {
+        kitRoom.remote.failedJoins = (kitRoom.remote.failedJoins || 0) + 1;
+        if (kitRoom.remote.failedJoins >= RL.maxFailedJoins) kitRoom.remote.closed = true;
+        throw kinoError("room_denied", "kino.room: wrong code");
+      }
       if (same) kitRoom.joined.splice(kitRoom.joined.indexOf(same), 1);
       const memberId = "mkit" + String(kitRoom.joined.length + 1).padStart(4, "0");
       const handle = "jkit" + String(Date.now() % 1000).padStart(3, "0") + kitRoom.joined.length;

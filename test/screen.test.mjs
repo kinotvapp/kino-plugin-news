@@ -143,7 +143,7 @@ test("the manifest: screen, library, a preferPhone job, shared results, the AI; 
   assert.equal(pf.STALE_AFTER_MIN, MANIFEST.jobs[0].everyMin, "one frequency: the job's (Kino's row); the screen's staleness is its default");
   assert.deepEqual(MANIFEST.hosts, ["news.google.com"]);
   assert.equal(MANIFEST.fetchHosts, "any");
-  assert.deepEqual(MANIFEST.settings.map((s) => s.key), ["loadMedia", "useAi", "useLibrary", "sampleLibrary", "libraryCount", "terms"]);
+  assert.deepEqual(MANIFEST.settings.map((s) => s.key), ["loadMedia", "useAi", "useLibrary", "hideAdult", "libraryCount", "terms"]);
   assert.equal(MANIFEST.settings.find((s) => s.key === "useLibrary").default, false);
   assert.equal(MANIFEST.settings.find((s) => s.key === "useAi").default, false);
   assert.equal(MANIFEST.settings.find((s) => s.key === "loadMedia").default, true);
@@ -647,7 +647,9 @@ test("a failed feed: the banner with Retry over the labelled samples", async () 
 test("Configuración: the switches and their notes, the add-term pop-up with Kino's form, and the duplicate check", async () => {
   const { plugin } = await rig({ config: { terms: [{ term: "Dragon Ball" }] } });
   const t = await tree(plugin, { tab: "settings" });
-  assert.deepEqual(ofType(t, "toggle").map((x) => x.key), ["loadMedia", "useAi", "useLibrary", "sampleLibrary"]);
+  assert.deepEqual(ofType(t, "toggle").map((x) => x.key), ["loadMedia", "useAi", "useLibrary"]);
+  // The 18+ filter is Kino's own settings form (it asks the 18+ code to switch it off), never a plugin toggle.
+  assert.deepEqual(ofType(t, "settings").map((x) => x.keys), [["hideAdult"]]);
   assert.equal(ofType(t, "dropdown").length, 0, "no frequency of its own: Kino's job row has it");
   assert.ok(ofType(t, "text").some((x) => /elige cada cuánto en Ajustes ▸ Noticias/.test(x.text)));
   assert.ok(ofType(t, "text").some((x) => /se envían a Google Noticias como términos de búsqueda/.test(x.text)));
@@ -706,23 +708,6 @@ test("the queries the owner's watched titles make, qualified by kind, from the s
   const en = await rig({ library: { watched: WATCHED.slice(0, 2) }, lang: "en-US", config: { useLibrary: true, loadMedia: false } });
   await answer(en.plugin, "open", { lang: "en" });
   assert.equal(decodeURIComponent(new URL(en.seen[0].url).searchParams.get("q")), "(\"Avatar\" movie) OR (\"Avatar: The Last Airbender\" \"TV series\")");
-});
-
-test("Títulos de ejemplo: without a history the example's movies and series stand in, said so, nothing read from the library", async () => {
-  const { plugin, seen } = await rig({ library: { watched: [] }, config: { useLibrary: true, sampleLibrary: true, loadMedia: false } });
-  assert.deepEqual(plain(plugin.SAMPLE_WATCHED).map((w) => w.title), ["Avatar", "Avatar: The Last Airbender", "Breaking Bad", "Dune", "Stranger Things", "One Piece", "Dragon Ball"]);
-  await answer(plugin, "open");
-  const tab = await answer(plugin, "pickTab", { value: "settings" });
-  const t = await tree(plugin, tab.state);
-  const rows = ofType(t, "row").filter((r) => /^w\d/.test(r.key));
-  assert.deepEqual(rows.map((r) => ofType(r, "text")[0].text), ["Avatar", "Avatar: The Last Airbender", "Breaking Bad", "Dune", "Stranger Things"]);
-  assert.ok(ofType(t, "text").some((x) => /Nada sale de tu biblioteca/.test(x.text)));
-  await answer(plugin, "open");
-  assert.match(decodeURIComponent(new URL(seen[0].url).searchParams.get("q")), /^\(\"Avatar\" película\) OR/);
-  const on = await rig({ library: { watched: [] } });
-  const sw = await answer(on.plugin, "sampleLibrary", { value: true });
-  assert.deepEqual(sw.config, { sampleLibrary: true });
-  assert.equal(sw.state.watched.length, 7);
 });
 
 // ---------- the job, kino.shared and the AI ----------
@@ -1001,7 +986,10 @@ test("the header on a phone: Kino's tabs on the left; «Actualizado hace …» t
       assert.equal(line.key, "refreshing", "«Actualizando…» right under the header, on either tab");
       assert.equal(line.hidden, true, "hidden until the tap");
       assert.equal(ofType(line, "progress").length, 1);
-      assert.match(ofType(line, "text")[0].text, /Actualizando…/);
+      // Exactly one «Actualizando…»: the progress bar's own label, no sibling text (Redmi pass 3, D-A).
+      assert.deepEqual(wordsOf(line).filter((w) => /Actualizando/.test(w)), ["Actualizando…"]);
+      assert.equal(ofType(line, "progress")[0].label, "Actualizando…");
+      assert.equal(ofType(line, "text").length, 0);
       const body = t.children[3];
       assert.equal(body.key, tab === "news" ? "newsBody" : "settingsBody", "then the tab's content (the header stays out of its scroll)");
       const inner = body.children[0];
@@ -1028,26 +1016,20 @@ test("the header's caption: offline in the warning colour when the feed is stale
   assert.deepEqual(first.children[0].children.map((c) => c.key), ["tabs", "refreshButton"]);
 });
 
-test("the header on a TV: tab buttons on the left (the picked one filled), a spacer, then «Actualizado hace …» and the refresh icon", async () => {
+test("the header on a TV: the same row, Kino's tab strip on the left, «Actualizado hace …» and the refresh icon on the right", async () => {
   const { plugin } = await rig({ net: { rss: rssOf(4) }, config: { loadMedia: false }, device: "tv" });
   const a = await answer(plugin, "open");
   for (const tab of ["news", "settings"]) {
     const t = await tree(plugin, { ...a.state, tab }, { device: "tv", size: { widthClass: "expanded", heightClass: "medium", orientation: "landscape" } });
     const head = t.children[0];
     assert.equal(head.type, "row");
-    // Tree order is the D-pad's Left/Right order: tab, tab, then the refresh icon; no tab strip, whose Right stops at its last tab.
-    assert.deepEqual(head.children.map((c) => (c.type === "spacer" ? "spacer" : c.key)), ["tab_news", "tab_settings", "spacer", "updatedAgo", "refreshButton"]);
-    assert.equal(ofType(head, "tabs").length, 0, "no tab strip in the header on a TV");
-    assert.equal(head.children[2].style.weight, 1, "the spacer pushes the caption and the icon to the right end");
-    const picked = head.children.find((c) => c.key === "tab_" + tab);
-    const other = head.children.find((c) => c.key !== "tab_" + tab && /^tab_/.test(c.key));
-    assert.equal(picked.variant, "primary");
-    assert.equal(other.variant, "text");
-    for (const b of [picked, other]) {
-      assert.equal(b.onTap.event.name, "pickTab");
-      assert.equal(b.onTap.event.arg, b.key.slice(4));
-    }
-    const button = head.children[4];
+    // Tree order is the D-pad's: the tab strip (Left/Right walk its tabs and, past the last, reach the icon in this row).
+    assert.deepEqual(head.children.map((c) => c.key), ["tabs", "updatedAgo", "refreshButton"]);
+    assert.equal(head.children[0].type, "tabs");
+    assert.equal(head.children[0].value, tab);
+    assert.equal(head.children[0].onChange.event.name, "pickTab");
+    assert.ok(!all(head).some((n) => /^tab_/.test(n.key || "")), "no button tabs any more");
+    const button = head.children[2];
     assert.equal(button.variant, "icon", "the circular arrow with Kino's focus ring");
     assert.equal(button.label, "Actualizar ahora");
     assert.ok((head.byClass.expanded || head).style.padding.bottom >= 12, "room under the header on a TV");
@@ -1055,8 +1037,7 @@ test("the header on a TV: tab buttons on the left (the picked one filled), a spa
     assert.equal(t.children[2].key, "refreshing");
     assert.equal(t.children[3].key, tab === "news" ? "newsBody" : "settingsBody");
   }
-  // Picking a tab from a TV button answers the same as the tab strip.
-  const picked = await answer(plugin, "pickTab", { arg: "settings" });
+  const picked = await answer(plugin, "pickTab", { value: "settings" });
   assert.equal(picked.state.tab, "settings");
 });
 
@@ -1282,4 +1263,223 @@ test("the refreshNow event with the feed down: the error toast, the stored cards
   assert.equal(a.state.feed.items.length, 4, "the stored cards stay");
   assert.equal(a.state.feed.stale, true);
   assert.equal(a.state.feed.failed, false);
+});
+
+// ---------- the 18+ filter ----------
+
+/** RSS from [{ title, source, url? }], the newest first; an `url` gives the item an old-style Google token for that address. */
+function rssFrom(list, base = Date.UTC(2026, 9, 26, 12)) {
+  const items = list.map((x, i) => {
+    const link = x.url
+      ? "https://news.google.com/rss/articles/" + Buffer.from("\x08\x13\x22" + String.fromCharCode(x.url.length) + x.url + "\xd2\x01\x00", "latin1").toString("base64").replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_") + "?oc=5"
+      : OPAQUE.replace("CBM", "CBM" + i + "a");
+    return `<item><title>${x.title} - ${x.source}</title><link>${link}</link><guid>a${i}</guid><pubDate>${new Date(base - i * 60000).toUTCString()}</pubDate><source url="https://m.example">${x.source}</source></item>`;
+  });
+  return `<rss><channel>${items.join("")}</channel></rss>`;
+}
+
+const ADULT_YES = [
+  "Filtran video porno de un famoso actor", "La industria del porno en crisis", "Estrella porno anuncia su retiro",
+  "Pornografía infantil: capturan a red en Bogotá", "Les dangers de la pornographie chez les ados", "Study on pornography and teens",
+  "Pornstar launches clothing line", "Nueva ley contra la prostitución en Colombia", "Prostitution ring busted in Miami",
+  "Rede de prostituição desmantelada em São Paulo", "Detienen a dos prostitutas en el centro", "Actriz confirma su cuenta de OnlyFans",
+  "OnlyFans creator earnings revealed", "Los videos más vistos de Pornhub en 2026", "XVideos bloqueado en Turquía",
+  "Leaked sex tape of reality star", "La sextape de la influencer", "Sexo explícito en la nueva serie: polémica",
+  "Une scène de sexe explicite fait scandale", "Sexually explicit content on the platform", "Contenido para adultos en la plataforma",
+  "Adult content creators protest new rules", "Adult film star dies at 40", "Garota de programa revela rotina",
+  "Escort service shut down by police", "Servicio de escorts de lujo desarticulado", "Escorts de lujo en Medellín",
+  "Club de striptease cerrado por la alcaldía", "Strip club owner arrested", "Fotos +18 de la cantante se filtran",
+  "Contenido 18+ en la app", "Imágenes NSFW generadas con IA", "Video XXX de una modelo", "Hentai: el anime para adultos",
+  "Orgía en una mansión de Hollywood", "Masturbación: lo que dice un estudio", "BDSM y consentimiento en el cine",
+  "Pornô brasileiro em alta", "Film porno tourné à Paris", "Chaturbate model sues platform",
+];
+const ADULT_NO = [
+  "Sex Education estrena su temporada final", "Sex and the City: el reboot vuelve", "El sexto episodio de The Last of Us",
+  "Essex derby ends in a draw", "Harry y Meghan, duques de Sussex", "Middlesex University film festival",
+  "Young adult novel becomes Netflix series", "Adulthood: a new HBO drama", "Adultos mayores reciben la vacuna",
+  "Contenido para adultos mayores en la radio pública", "El Ford Escort vuelve en versión eléctrica", "Navy escort ships arrive",
+  "Super Bowl XXX: recordando el partido", "Pornic accueille un festival de cinéma", "Thriller erótico de los noventa vuelve a cines",
+  "Sexy Beast llega a Paramount+", "Adult Swim renueva Rick and Morty", "La película para toda la familia del año",
+  "El dólar sube +18% en octubre", "Las ventas suben 18 % este año", "Avatar: Fuego y Ceniza bate récords",
+  "Dune: Parte Tres confirma su reparto", "Stranger Things: el final explicado", "One Piece temporada 2 en Netflix",
+  "Dragon Ball Daima termina", "Breaking Bad cumple años y su elenco se reúne", "Ley de educación sexual en debate",
+  "Campaña de salud sexual en colegios", "Diversidad sexual en el cine latino", "The Sexual Life of College Girls renewed",
+  "Prosecutors charge the producer", "Prosperity Gospel documentary", "Estreno de Adultos, la nueva comedia",
+  "Babygirl, de Nicole Kidman, llega a streaming", "Porto vence al Benfica", "Escorpión, el nuevo thriller",
+  "18 años de Grey's Anatomy", "Ganó por 18 puntos de diferencia", "Matrix cumple 25 años", "Mortal Kombat 2 tráiler oficial",
+];
+
+test("isAdult: a table of 80 headlines (40 18+, 40 not), whole words and phrases, accents and case aside", async () => {
+  const p = await P();
+  assert.ok(ADULT_YES.length + ADULT_NO.length >= 60);
+  for (const t of ADULT_YES) assert.equal(p.isAdult(t), true, "should be 18+: " + t);
+  for (const t of ADULT_NO) assert.equal(p.isAdult(t), false, "should pass: " + t);
+  assert.equal(p.isAdult(""), false);
+  assert.equal(p.isAdult(null), false);
+  assert.equal(p.isAdult("PORNOGRAFÍA"), true, "case and accents aside");
+  assert.equal(p.isAdult("Super Bowl XXX y luego un video xxx"), true, "a second xxx is not the Super Bowl's");
+});
+
+test("isAdultUrl and adultRecord: the adult domains and their subdomains, http or https; a record by any of its fields", async () => {
+  const p = await P();
+  for (const u of ["https://www.pornhub.com/view", "https://es.xvideos.com/x", "http://onlyfans.com/a", "https://xhamster.com"]) assert.equal(p.isAdultUrl(u), true, u);
+  for (const u of ["https://www.eltiempo.com/cine", "https://notpornhub.com.example.org/", "https://pornhub.com.evil.example/", "ftp://pornhub.com", "", null]) assert.equal(p.isAdultUrl(u), false, String(u));
+  assert.equal(p.adultRecord({ t: "Avatar", s: "Diario", d: "", u: "https://www.diario.example/x", c: "film" }), false);
+  assert.equal(p.adultRecord({ t: "Avatar", s: "Diario", d: "", u: "https://www.pornhub.com/x", c: "film" }), true, "by the outlet");
+  assert.equal(p.adultRecord({ t: "Avatar", s: "XVideos", d: "", u: null, c: "film" }), true, "by the source's name");
+  assert.equal(p.adultRecord({ t: "Avatar", s: "Diario", d: "Un video porno filtrado", u: null, c: "film" }), true, "by the description");
+  assert.equal(p.adultRecord({ t: "Avatar", s: "Diario", d: "", u: null, c: "adult" }), true, "by the AI's category");
+  assert.ok(p.ADULT_DOMAINS.length >= 10);
+});
+
+test("buildTerms: an adult term or watched title is never searched with the filter on (the default); off, it is", async () => {
+  const p = await P();
+  const titles = [{ title: "Avatar", kind: "movie" }, { title: "Pornstar Diaries", kind: "series" }];
+  const on = plain(p.buildTerms({ terms: ["Dune", "porno gratis"], titles, useLibrary: true }));
+  assert.deepEqual(on.map((x) => x.term), ["Dune", "Avatar"]);
+  const off = plain(p.buildTerms({ terms: ["Dune", "porno gratis"], titles, useLibrary: true, hideAdult: false }));
+  assert.deepEqual(off.map((x) => x.term), ["Dune", "porno gratis", "Avatar", "Pornstar Diaries"]);
+});
+
+test("step with the filter (default on): adult headlines, sources and outlets never enter the cache or the counts; off, they do", async () => {
+  const p = await P();
+  const list = [
+    { title: "Avatar: Fuego y Ceniza bate récords", source: "Diario" },
+    { title: "Filtran video porno de un famoso actor", source: "Diario" },
+    { title: "Dune: Parte Tres confirma su reparto", source: "XVideos" },
+    { title: "Stranger Things: el final explicado", source: "Diario", url: "https://www.pornhub.com/view_video" },
+    { title: "One Piece temporada 2 en Netflix", source: "Diario" },
+  ];
+  const rss = rssFrom(list);
+  for (const [settings, expected] of [
+    [{ ...settingsBase }, ["Avatar: Fuego y Ceniza bate récords", "One Piece temporada 2 en Netflix"]],
+    [{ ...settingsBase, hideAdult: true }, ["Avatar: Fuego y Ceniza bate récords", "One Piece temporada 2 en Netflix"]],
+    [{ ...settingsBase, hideAdult: false }, list.map((x) => x.title)],
+  ]) {
+    const store = memStore();
+    const cache = p.makeCache(store);
+    const clock = fakeClock();
+    const net = fakeNet({ rss, clock });
+    const r = await p.step(cache, net.fetch, settings, clock, { ...p.budgetFor("phone"), maxFetches: 10 });
+    assert.deepEqual(plain(r.stories).map((x) => x.t), expected);
+    assert.deepEqual(plain(p.validStories(JSON.parse(store.get("stories")))).map((x) => x.t), expected, "the cache holds the same");
+    if (settings.hideAdult !== false) assert.ok(!net.seen.some((x) => /pornhub/.test(x.url)), "no adult page is ever read");
+    const counts = plain(p.categoryOptions(r.stories.map((x) => ({ cat: x.c }))));
+    assert.equal(counts[0].label, "Todas (" + expected.length + ")");
+  }
+});
+
+test("a cache written with the filter off (or by an older version) loses its adult stories at the next step with it on", async () => {
+  const p = await P();
+  const store = memStore();
+  const cache = p.makeCache(store);
+  const clock = fakeClock();
+  const rss = rssFrom([{ title: "Avatar: Fuego y Ceniza bate récords", source: "Diario" }, { title: "Actriz confirma su cuenta de OnlyFans", source: "Diario" }]);
+  await p.step(cache, fakeNet({ rss, clock }).fetch, { ...settingsBase, hideAdult: false }, clock);
+  assert.equal(p.validStories(JSON.parse(store.get("stories"))).length, 2);
+  // The same cache under the old key (no "|18+": what a legacy feed looks like), stepped with the filter on by default.
+  const feed = JSON.parse(store.get("feed"));
+  store.set("feed", JSON.stringify({ ...feed, key: feed.key.replace("|18+", "") }));
+  const r = await p.step(cache, async () => { throw new Error("no request expected"); }, { ...settingsBase }, clock);
+  assert.deepEqual(plain(r.stories).map((x) => x.t), ["Avatar: Fuego y Ceniza bate récords"]);
+  assert.deepEqual(plain(p.validStories(JSON.parse(store.get("stories")))).map((x) => x.t), ["Avatar: Fuego y Ceniza bate récords"]);
+});
+
+test("an outlet resolved to an adult site: the story is dropped and its page never read", async () => {
+  const p = await P();
+  const store = memStore();
+  const cache = p.makeCache(store);
+  const clock = fakeClock();
+  const net = fakeNet({ rss: rssOf(2), clock, resolver: FIX("batchexecute-answer.txt").replace(/https:\/\/www\.diario\.example[^"\\]*/g, "https://www.pornhub.com/view") });
+  for (let i = 0; i < 4; i++) await p.step(cache, net.fetch, { ...settingsBase }, clock);
+  assert.ok(!net.seen.some((x) => /pornhub/.test(x.url)), "never fetched");
+  assert.equal(p.validStories(JSON.parse(store.get("stories"))).filter((x) => /pornhub/.test(x.u || "")).length, 0);
+});
+
+test("the AI may answer «adult» with the filter on: those stories are dropped, never a category; off, «adult» is «other»", async () => {
+  const p = await P();
+  const stories = [{ id: "s0", t: "Uno" }, { id: "s1", t: "Dos" }];
+  assert.match(p.buildCategoryPrompt(stories).system, /adult/);
+  assert.doesNotMatch(p.buildCategoryPrompt(stories, 40, false).system, /adult/);
+  const answer = "[{\"id\":\"s0\",\"category\":\"adult\"},{\"id\":\"s1\",\"category\":\"film\"}]";
+  assert.deepEqual(plain(p.parseCategories(answer, stories, true)), { s0: "adult", s1: "film" });
+  assert.deepEqual(plain(p.parseCategories(answer, stories)), { s0: "other", s1: "film" });
+  assert.ok(!p.CATEGORIES.some((c) => c.value === "adult"), "never a tab");
+  const store = memStore();
+  const cache = p.makeCache(store);
+  const clock = fakeClock();
+  await p.step(cache, fakeNet({ rss: rssOf(3), clock }).fetch, { ...settingsBase, loadMedia: false }, clock);
+  const ids = p.validStories(JSON.parse(store.get("stories"))).map((x) => x.id);
+  const ask = async () => JSON.stringify(ids.map((id, i) => ({ id, category: i === 0 ? "adult" : "film" })));
+  const r = plain(await p.classifyNow(cache, clock, undefined, ask));
+  assert.equal(r.stories.length, 2);
+  assert.ok(!p.validStories(JSON.parse(store.get("stories"))).some((x) => x.id === ids[0]));
+});
+
+test("the screen: «No mostrar noticias +18» on by default, locked with Kino's 18+ code, in Kino's own settings form", async () => {
+  const setting = MANIFEST.settings.find((s) => s.key === "hideAdult");
+  assert.equal(setting.default, true);
+  assert.equal(setting.unlockWith, "adultCode", "switching it off asks the device's 18+ code (Kino's prompt)");
+  assert.equal(setting.label, "No mostrar noticias +18");
+  assert.equal(setting.labelEn, "Hide 18+ news");
+  assert.equal(setting.hint, "Filtro básico por palabras: puede no detectar todo");
+  assert.equal(setting.hintEn, "A basic word filter: it may not catch everything");
+  const { plugin } = await rig();
+  const t = await tree(plugin, { tab: "settings" });
+  // Kino's form draws the switch (and its hint), asks the code and saves: the plugin has no toggle and no event for it.
+  assert.equal(ofType(t, "toggle").find((x) => x.key === "hideAdult"), undefined);
+  assert.deepEqual(ofType(t, "settings").map((x) => x.keys), [["hideAdult"]]);
+  assert.ok(ofType(t, "text").some((x) => x.text === "Para apagarlo, Kino te pide su código de control parental; luego pulsa Guardar."));
+  const en = await tree(plugin, { tab: "settings" }, { lang: "en" });
+  assert.ok(ofType(en, "text").some((x) => x.text === "To switch it off, Kino asks for its parental control code; then press Save."));
+  // The old plugin event is gone: nothing the plugin answers can switch the filter off.
+  assert.equal(await answer(plugin, "adultFilter", { value: false }), null);
+});
+
+test("the 18+ filter changed in Configuración reloads Noticias on the way back; unchanged, nothing reloads", async () => {
+  const { plugin } = await rig();
+  const opened = await answer(plugin, "pickTab", { value: "settings" });
+  assert.equal(opened.state.adultWas, true);
+  // Unchanged: back on Noticias, no reload.
+  const same = await answer(plugin, "pickTab", { value: "news", state: opened.state });
+  assert.equal(same.state.feedOutdated, undefined);
+  assert.equal(same.state.adultWas, null);
+  // The person switched it off in Kino's form (after the code): back on Noticias, the feed reloads.
+  const off = await rig({ config: { hideAdult: false } });
+  const back = await answer(off.plugin, "pickTab", { value: "news", state: opened.state });
+  assert.equal(back.state.feedOutdated, true);
+});
+
+test("adult terms and watched titles: «Oculto por el filtro +18» in their rows and never in a query; with the filter off they are searched", async () => {
+  const library = { watched: [
+    { title: "Avatar", kind: "movie", year: 2009, watchedAtMs: Date.UTC(2026, 9, 20) },
+    { title: "Pornstar Diaries", kind: "series", watchedAtMs: Date.UTC(2026, 9, 19) },
+  ] };
+  const config = { useLibrary: true, libraryCount: "5", loadMedia: false, terms: [{ term: "Dune" }, { term: "video porno" }] };
+  const { plugin, seen } = await rig({ library, config });
+  await answer(plugin, "open");
+  const q = decodeURIComponent(new URL(seen[0].url).searchParams.get("q"));
+  assert.equal(q, "Dune OR (\"Avatar\" película)");
+  const tab = await answer(plugin, "pickTab", { value: "settings" });
+  const t = await tree(plugin, tab.state);
+  const hiddenRows = ofType(t, "row").filter((r) => ofType(r, "text").some((x) => x.text === "Oculto por el filtro +18"));
+  assert.deepEqual(hiddenRows.map((r) => ofType(r, "text")[0].text), ["Pornstar Diaries", "video porno"]);
+  const off = await rig({ library, config: { ...config, hideAdult: false } });
+  await answer(off.plugin, "open");
+  assert.match(decodeURIComponent(new URL(off.seen[0].url).searchParams.get("q")), /video porno.*Pornstar Diaries/);
+  const t2 = await tree(off.plugin, { tab: "settings" });
+  assert.ok(!wordsOf(t2).includes("Oculto por el filtro +18"));
+});
+
+test("a story the filter drops is never opened: no pop-up, no page read", async () => {
+  const { plugin, kino, seen } = await rig();
+  const p = await P();
+  // A story stored with the filter off (or by an older version), read with it on (the default).
+  p.makeCache(kino.storage).set("stories", [{ id: "sadult01", t: "Filtran video porno de un famoso actor", s: "Diario", p: 1, g: null, u: "https://www.diario.example/x", i: null, d: "", c: "other", a: 0, r: 0, m: 0, ok: false, q: 0 }]);
+  assert.equal(await answer(plugin, "read", { arg: "sadult01" }), null);
+  assert.equal(seen.length, 0, "no page read");
+  const off = await rig({ config: { hideAdult: false, loadMedia: false } });
+  p.makeCache(off.kino.storage).set("stories", [{ id: "sadult01", t: "Filtran video porno de un famoso actor", s: "Diario", p: 1, g: null, u: "https://www.diario.example/x", i: null, d: "", c: "other", a: 0, r: 0, m: 0, ok: false, q: 0 }]);
+  const opened = await answer(off.plugin, "read", { arg: "sadult01" });
+  assert.deepEqual(plain(opened.ui), [{ open: "story" }], "with the filter off it opens");
 });
