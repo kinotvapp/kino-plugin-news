@@ -16,8 +16,10 @@ export const MAX_CARDS = 40;
 export const DESC_CHARS = 240;
 export const META_TTL_MS = 24 * 3600000;
 export const RETRY_MS = 3600000;
+/** A page that gave nothing (slow, or it answered badly once) is read again after this, not after RETRY_MS: most are a hiccup. */
+export const META_RETRY_MS = 10 * 60000;
 /** Every request gives up after this long, so a step always ends inside a screen call's 20 s. */
-export const PAGE_TIMEOUT_MS = 5000;
+export const PAGE_TIMEOUT_MS = 8000;
 export const FREQUENCIES_MIN = [15, 30, 60, 180, 720, 1440];
 /**
  * How old the news may be before the screen fetches them itself when it opens: the job's default period (manifest

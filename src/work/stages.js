@@ -1,6 +1,6 @@
 // The work queue's frame: a fetch within a budget, the stages in order, what is still pending.
 
-import { budgetFor, META_TTL_MS, PAGE_TIMEOUT_MS, READ_BYTES, RETRY_MS, utf8Bytes } from "../limits.js";
+import { budgetFor, META_RETRY_MS, META_TTL_MS, PAGE_TIMEOUT_MS, READ_BYTES, RETRY_MS, utf8Bytes } from "../limits.js";
 
 /**
  * A budget for one step: [b] (see `budgetFor`) against [clock] (`{ now(), sleep(ms) }`). `fetch` waits `fetchGapMs` after
@@ -43,10 +43,10 @@ export function stageOrder(turn) {
   return [...STAGES.slice(k), ...STAGES.slice(0, k)];
 }
 
-/** True while a story's page data may be used: a day when the page gave something, an hour when it did not. */
+/** True while a story's page data may be used: a day when the page gave something, ten minutes when it did not. */
 export function metaFresh(rec, now) {
   if (!rec.m || now < rec.m) return false;
-  return now - rec.m < (rec.ok ? META_TTL_MS : RETRY_MS);
+  return now - rec.m < (rec.ok ? META_TTL_MS : META_RETRY_MS);
 }
 
 /**

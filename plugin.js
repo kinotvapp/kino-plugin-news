@@ -9,7 +9,8 @@ var MAX_CARDS = 40;
 var DESC_CHARS = 240;
 var META_TTL_MS = 24 * 36e5;
 var RETRY_MS = 36e5;
-var PAGE_TIMEOUT_MS = 5e3;
+var META_RETRY_MS = 10 * 6e4;
+var PAGE_TIMEOUT_MS = 8e3;
 var FREQUENCIES_MIN = [15, 30, 60, 180, 720, 1440];
 var STALE_AFTER_MIN = 60;
 var STEP_MAX_BYTES = Math.floor(1.6 * 1024 * 1024);
@@ -885,7 +886,7 @@ function stageOrder(turn) {
 }
 function metaFresh(rec, now) {
   if (!rec.m || now < rec.m) return false;
-  return now - rec.m < (rec.ok ? META_TTL_MS : RETRY_MS);
+  return now - rec.m < (rec.ok ? META_TTL_MS : META_RETRY_MS);
 }
 function pending(stories, { loadMedia = true, useAi = false } = {}, b = budgetFor("phone"), now = 0) {
   const out = { resolve: [], meta: [], categorize: [] };

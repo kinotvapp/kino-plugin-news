@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4
+
+- Pictures: a story's page that failed once is read again after 10 minutes (not an hour), and a page gets 8 seconds to answer (was 5).
+
 ## 1.0.3
 
 - The news are only about what you watch and your own topics. With no topic and nothing watched, the plugin reads nothing and

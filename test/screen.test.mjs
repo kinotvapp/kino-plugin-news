@@ -287,6 +287,17 @@ test("step: no term asks Google for nothing: no request, no story, not a failure
   assert.equal(r.changed, false);
 });
 
+test("metaFresh: a page that gave nothing is read again after ten minutes; one that gave a picture stays a day", async () => {
+  const p = await P();
+  const t0 = Date.UTC(2026, 9, 27, 12);
+  const failed = { m: t0, ok: false };
+  assert.equal(p.metaFresh(failed, t0 + 9 * 60000), true, "still waiting at 9 minutes");
+  assert.equal(p.metaFresh(failed, t0 + 11 * 60000), false, "read again after 11 minutes");
+  const good = { m: t0, ok: true };
+  assert.equal(p.metaFresh(good, t0 + 23 * 3600000), true);
+  assert.equal(p.metaFresh(good, t0 + 25 * 3600000), false);
+});
+
 test("step: 50 terms make at most 10 requests in all; every request waits its gap on the injected clock", async () => {
   const p = await P();
   const clock = fakeClock();
