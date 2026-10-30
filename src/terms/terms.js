@@ -36,7 +36,7 @@ export function addTerm(terms, text, watchedCount = 0) {
 
 /**
  * Every search term of the feed: `[{ term, from: "term" | "watched" }]`, the person's own first, then (only when
- * [useLibrary] is on) the most recent watched [titles] not [excluded], as many as fit (50 in all). None means top stories.
+ * [useLibrary] is on) the most recent watched [titles] not [excluded], as many as fit (50 in all). None means nothing is read.
  * With [hideAdult] (the default) a term or watched title that looks 18+ (`isAdult`) is left out: Google is never asked for it.
  */
 export function buildTerms({ terms = [], titles = [], excluded = [], useLibrary = false, libraryCount = 5, hideAdult = true } = {}) {

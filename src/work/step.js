@@ -36,7 +36,7 @@ export async function resolveArticle(u, link, edition) {
  *
  * 1. The feed, when it is older than the frequency (or [force], or the terms changed): the terms packed into OR searches,
  *    at most `batch` of them; with more, each step takes the next ones (a cursor in the cache), so every term is searched
- *    over time. No term: the top stories. The results join the window of the newest 100 stories.
+ *    over time. No term: nothing is read. The results join the window of the newest 100 stories.
  * 2. Then one batch for each stage, in a rotating order, while the budget lasts: the outlet's address, the page's picture
  *    and description, the AI's category (one question of at most `batch` titles, at most one every `askGapMs`, counted as a
  *    request). What the
@@ -112,8 +112,9 @@ export async function step(cache, fetch, settings, clock, budget = budgetFor("ph
   };
 
   // 1. The feed.
-  if (s.force || !isFresh(feed, key, now, frequencyMs(s.frequencyMin))) {
-    const all = terms.length ? batchQueries(terms, edition) : [{ q: "", terms: [] }];
+  // No term, nothing to read: the news are only about what the person watched and their own topics, never Google's front page.
+  if (terms.length > 0 && (s.force || !isFresh(feed, key, now, frequencyMs(s.frequencyMin)))) {
+    const all = batchQueries(terms, edition);
     const { chosen, next } = pickBatches(all, sameTerms ? feed.cursor : 0, b.batch);
     const lists = [];
     for (const batch of chosen) {

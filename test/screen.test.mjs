@@ -102,7 +102,7 @@ async function rig({ net = {}, config = {}, lang = "es-CO", device = "phone", li
     const r = await n.fetch(url, init);
     return new Response(await r.text(), { status: r.status, headers: { "content-type": "text/html; charset=utf-8" } });
   };
-  const { kino } = createKino(MANIFEST, { config, fetchImpl, lang, device, libraryFixture: library, shared, ai, storageFile });
+  const { kino } = createKino(MANIFEST, { config: { terms: [{ term: "Dune" }], ...config }, fetchImpl, lang, device, libraryFixture: library, shared, ai, storageFile });
   const { plugin } = await loadPlugin(join(DIR, "plugin.js"), kino, { console: quiet });
   return { plugin, kino, seen: n.seen };
 }
@@ -128,7 +128,7 @@ async function answer(plugin, name, { arg, value, state = {}, lang = "es" } = {}
 const all = (n) => [n, ...childNodes(n).flatMap(all)];
 const ofType = (n, type) => all(n).filter((x) => x.type === type);
 const cards = (t) => ofType(t, "card").filter((c) => /^n/.test(c.key));
-const settingsBase = { edition: "co", terms: [], titles: [], excluded: [], useLibrary: false, libraryCount: 5, frequencyMin: 60, loadMedia: true, useAi: false };
+const settingsBase = { edition: "co", terms: ["Dune"], titles: [], excluded: [], useLibrary: false, libraryCount: 5, frequencyMin: 60, loadMedia: true, useAi: false };
 
 // ---------- the manifest ----------
 
@@ -144,7 +144,7 @@ test("the manifest: screen, library, a preferPhone job, shared results, the AI; 
   assert.deepEqual(MANIFEST.hosts, ["news.google.com"]);
   assert.equal(MANIFEST.fetchHosts, "any");
   assert.deepEqual(MANIFEST.settings.map((s) => s.key), ["loadMedia", "useAi", "useLibrary", "hideAdult", "libraryCount", "terms"]);
-  assert.equal(MANIFEST.settings.find((s) => s.key === "useLibrary").default, false);
+  assert.equal(MANIFEST.settings.find((s) => s.key === "useLibrary").default, true);
   assert.equal(MANIFEST.settings.find((s) => s.key === "useAi").default, false);
   assert.equal(MANIFEST.settings.find((s) => s.key === "loadMedia").default, true);
   const { plugin } = await rig();
@@ -254,14 +254,14 @@ test("batching: 50 qualified terms of 40 characters fit in a few searches under 
 
 // ---------- step: the work queue within a budget ----------
 
-test("step: no term reads the top stories once; a fresh feed is not fetched again; the stories are a compact record", async () => {
+test("step: a term reads its search once; a fresh feed is not fetched again; the stories are a compact record", async () => {
   const p = await P();
   const clock = fakeClock();
   const net = fakeNet({ clock });
   const store = memStore();
   const cache = p.makeCache(store);
   const r = plain(await p.step(cache, net.fetch, { ...settingsBase, loadMedia: false }, clock));
-  assert.deepEqual(net.seen.map((x) => x.url), ["https://news.google.com/rss?hl=es-419&gl=CO&ceid=CO%3Aes-419"]);
+  assert.deepEqual(net.seen.map((x) => x.url), ["https://news.google.com/rss/search?q=Dune&hl=es-419&gl=CO&ceid=CO%3Aes-419"]);
   assert.equal(r.stories.length, 3);
   assert.equal(r.changed, true);
   const rec = r.stories.find((s) => s.t === "Breaking Bad cumple años y su elenco se reúne");
@@ -273,6 +273,18 @@ test("step: no term reads the top stories once; a fresh feed is not fetched agai
   assert.equal(net.seen.length, 1);
   assert.equal(again.changed, false);
   assert.equal(again.stories.length, 3);
+});
+
+test("step: no term asks Google for nothing: no request, no story, not a failure", async () => {
+  const p = await P();
+  const clock = fakeClock();
+  const net = fakeNet({ clock });
+  const cache = p.makeCache(memStore());
+  const r = plain(await p.step(cache, net.fetch, { ...settingsBase, terms: [], loadMedia: false }, clock));
+  assert.equal(net.seen.length, 0);
+  assert.equal(r.stories.length, 0);
+  assert.equal(r.failed, false);
+  assert.equal(r.changed, false);
 });
 
 test("step: 50 terms make at most 10 requests in all; every request waits its gap on the injected clock", async () => {
@@ -626,7 +638,7 @@ test("with pages off: no outlet is contacted, cards without pictures, the pop-up
   const a = await answer(plugin, "open");
   const id = a.state.feed.items.find((x) => x.title === "Avatar: Fuego y Ceniza confirma su fecha de estreno").id;
   const r = await answer(plugin, "read", { arg: id, state: a.state });
-  assert.ok(seen.every((x) => x.url.startsWith("https://news.google.com/rss?")));
+  assert.ok(seen.every((x) => x.url.startsWith("https://news.google.com/rss/search?")));
   const pop = ofType(await tree(plugin, { ...a.state, ...r.state }), "popup")[0];
   assert.equal(ofType(pop, "qr")[0].value, OPAQUE);
   assert.equal(pop.buttons[0].event, "openStory", "Google's link is still https: the button stays");
@@ -634,18 +646,19 @@ test("with pages off: no outlet is contacted, cards without pictures, the pop-up
   assert.ok(ofType(pop, "text").some((x) => /No pudimos leer el texto/.test(x.text)));
 });
 
-test("a failed feed: the banner with Retry over the labelled samples", async () => {
+test("a failed feed with nothing stored: the banner with Retry and an empty state, never sample stories", async () => {
   const { plugin } = await rig({ net: { rssStatus: 503 } });
   const a = await answer(plugin, "open");
   assert.equal(a.state.feed.failed, true);
   const t = await tree(plugin, a.state);
   assert.equal(ofType(t, "banner")[0].action.onTap.event.name, "refreshNow");
-  assert.deepEqual(cards(t).map((c) => c.key), ["n1", "n2", "n3"]);
-  assert.match(ofType(cards(t)[0], "text").find((x) => x.variant === "caption").text, /^Noticia de ejemplo/);
+  assert.deepEqual(cards(t).map((c) => c.key), []);
+  assert.ok(ofType(t, "emptyState").length === 1);
+  assert.doesNotMatch(wordsOf(t).join(" | "), /ejemplo|sample/i);
 });
 
 test("Configuración: the switches and their notes, the add-term pop-up with Kino's form, and the duplicate check", async () => {
-  const { plugin } = await rig({ config: { terms: [{ term: "Dragon Ball" }] } });
+  const { plugin } = await rig({ config: { terms: [{ term: "Dragon Ball" }], useLibrary: false } });
   const t = await tree(plugin, { tab: "settings" });
   assert.deepEqual(ofType(t, "toggle").map((x) => x.key), ["loadMedia", "useAi", "useLibrary"]);
   // The 18+ filter is Kino's own settings form (it asks the 18+ code to switch it off), never a plugin toggle.
@@ -682,7 +695,7 @@ test("Usar lo que he visto: the watched works as rows with their kind; removing 
     { title: "Avatar: The Last Airbender", kind: "series", watchedAtMs: Date.UTC(2026, 9, 19) },
     { title: "Breaking Bad", kind: "series", year: 2008, watchedAtMs: Date.UTC(2026, 9, 18) },
   ] };
-  const { plugin } = await rig({ library, config: { useLibrary: true, libraryCount: "5" } });
+  const { plugin } = await rig({ library, config: { terms: [], useLibrary: true, libraryCount: "5" } });
   await answer(plugin, "open");
   const tab = await answer(plugin, "pickTab", { value: "settings" });
   const t = await tree(plugin, { ...tab.state });
@@ -693,7 +706,7 @@ test("Usar lo que he visto: the watched works as rows with their kind; removing 
   assert.equal(ex.toast.text, "Guardado");
   const open = await answer(plugin, "open");
   assert.equal(open.state.feed.terms, 2);
-  const empty = await rig({ library: { watched: [] } });
+  const empty = await rig({ library: { watched: [] }, config: { terms: [], useLibrary: false } });
   const refused = await answer(empty.plugin, "library", { value: true });
   assert.equal(refused.state.settingsError.es, "Necesitas al menos un término: agrega uno o mira algo primero");
   assert.equal(refused.config, null);
@@ -705,7 +718,7 @@ test("the queries the owner's watched titles make, qualified by kind, from the s
   const q = decodeURIComponent(new URL(seen[0].url).searchParams.get("q"));
   assert.equal(q, "\"Dragon Ball Daima\" OR (\"Avatar\" película) OR (\"Avatar: The Last Airbender\" serie) OR (\"Breaking Bad\" serie) OR " +
     "(\"Dune\" película) OR (\"Stranger Things\" serie) OR (\"One Piece\" serie) OR (\"Dragon Ball\" serie)");
-  const en = await rig({ library: { watched: WATCHED.slice(0, 2) }, lang: "en-US", config: { useLibrary: true, loadMedia: false } });
+  const en = await rig({ library: { watched: WATCHED.slice(0, 2) }, lang: "en-US", config: { terms: [], useLibrary: true, loadMedia: false } });
   await answer(en.plugin, "open", { lang: "en" });
   assert.equal(decodeURIComponent(new URL(en.seen[0].url).searchParams.get("q")), "(\"Avatar\" movie) OR (\"Avatar: The Last Airbender\" \"TV series\")");
 });
@@ -909,13 +922,13 @@ test("a step cut short still keeps its progress: the stories are stored after th
 const wordsOf = (t) => all(t).flatMap((n) => [n.text, n.textEn, n.label, n.labelEn, n.title, n.titleEn, n.hint, n.hintEn]).filter((x) => typeof x === "string");
 
 test("the terms line: the plain count only; no «destacadas» / featured sentence anywhere, with or without terms", async () => {
-  const none = await rig({ net: { rss: rssOf(3) } });
+  const none = await rig({ net: { rss: rssOf(3) }, config: { terms: [], useLibrary: false } });
   const t0 = await tree(none.plugin, { tab: "settings" });
   assert.ok(ofType(t0, "text").some((x) => x.text === "0 de 50 términos en total."));
   const some = await rig({ config: { terms: [{ term: "Dune" }] } });
   const t1 = await tree(some.plugin, { tab: "settings" });
   assert.ok(ofType(t1, "text").some((x) => x.text === "1 de 50 términos en total."));
-  // The feed with no term shows the top stories silently: no banner, no hint, in Noticias or Configuración.
+  // The feed with no term reads nothing and says so once, in its empty state: no banner, no hint in Configuración.
   const opened = await answer(none.plugin, "open");
   assert.equal(opened.state.feed.terms, 0);
   for (const lang of ["es", "en"]) {
@@ -955,23 +968,20 @@ test("the refresh icon: Kino lists `refresh` (Task 8v) and the button keeps it",
   assert.equal(all(t).find((b) => b.key === "refreshButton").icon, "refresh");
 });
 
-test("the header on a phone: Kino's tabs on the left; «Actualizado hace …» then the refresh icon on the right, in one row", async () => {
+test("the header on a phone: Kino's tabs on the left; the refresh icon on the right, in one row", async () => {
   const { plugin } = await rig({ net: { rss: rssOf(4) }, config: { loadMedia: false } });
   const a = await answer(plugin, "open");
   for (const tab of ["news", "settings"]) {
     for (const widthClass of ["compact", "medium", "expanded"]) {
       const t = await tree(plugin, { ...a.state, tab }, { size: { widthClass, heightClass: "medium", orientation: "portrait" } });
       const head = t.children[0];
-      assert.equal(head.type, "row", "tabs, caption and button share one row");
-      assert.deepEqual(head.children.map((c) => c.key), ["tabs", "updatedAgo", "refreshButton"]);
-      const [tabs, ago, button] = head.children;
+      assert.equal(head.type, "row", "tabs and button share one row");
+      assert.deepEqual(head.children.map((c) => c.key), ["tabs", "refreshButton"]);
+      const [tabs, button] = head.children;
       assert.equal(tabs.type, "tabs");
       assert.equal(tabs.value, tab, "the tab selection still works");
       assert.equal(tabs.onChange.event.name, "pickTab");
       assert.equal(tabs.style.weight, 1, "the tabs take the room left, from the left edge");
-      assert.equal(ago.variant, "caption");
-      assert.equal(ago.style.color, "muted");
-      assert.match(ago.text, /^Actualizado /);
       assert.equal(button.variant, "icon", "icon only: its label is not drawn");
       assert.equal(button.icon, "refresh");
       assert.equal(button.label, "Actualizar ahora", "the accessible label (TalkBack, the TV's focus)");
@@ -998,25 +1008,23 @@ test("the header on a phone: Kino's tabs on the left; «Actualizado hace …» t
     }
   }
   const en = await tree(plugin, a.state, { lang: "en" });
-  assert.equal(en.children[0].children[2].label, "Refresh now");
-  assert.match(en.children[0].children[1].text, /^Updated /);
+  assert.equal(en.children[0].children[1].label, "Refresh now");
+  assert.ok(!all(en).some((n) => n.key === "updatedAgo"), "no «Updated …» caption");
   assert.equal(all(await tree(plugin, a.state)).filter((n) => n.key === "refreshButton").length, 1, "one refresh button");
 });
 
-test("the header's caption: offline in the warning colour when the feed is stale or failed; nothing before the first load", async () => {
+test("the header never shows «Actualizado hace …», fresh, stale or failed", async () => {
   const { plugin } = await rig({ net: { rss: rssOf(4) }, config: { loadMedia: false } });
   const a = await answer(plugin, "open");
-  const stale = await tree(plugin, { ...a.state, feed: { ...a.state.feed, stale: true } });
-  const ago = all(stale).find((n) => n.key === "updatedAgo");
-  assert.equal(ago.style.color, "warning");
-  assert.match(ago.text, /^Sin conexión · actualizado /);
-  assert.ok(!all(stale).some((n) => n.key === "feedStale"), "no banner for a stale feed");
-  const first = await tree(plugin, {});
-  assert.ok(!all(first).some((n) => n.key === "updatedAgo"));
-  assert.deepEqual(first.children[0].children.map((c) => c.key), ["tabs", "refreshButton"]);
+  for (const feed of [a.state.feed, { ...a.state.feed, stale: true }, { ...a.state.feed, failed: true }]) {
+    const t = await tree(plugin, { ...a.state, feed });
+    assert.ok(!all(t).some((n) => n.key === "updatedAgo"));
+    assert.doesNotMatch(wordsOf(t).join(" | "), /Actualizado|actualizado|Updated|Sin conexión/);
+    assert.deepEqual(t.children[0].children.map((c) => c.key), ["tabs", "refreshButton"]);
+  }
 });
 
-test("the header on a TV: the same row, Kino's tab strip on the left, «Actualizado hace …» and the refresh icon on the right", async () => {
+test("the header on a TV: the same row, Kino's tab strip on the left and the refresh icon on the right", async () => {
   const { plugin } = await rig({ net: { rss: rssOf(4) }, config: { loadMedia: false }, device: "tv" });
   const a = await answer(plugin, "open");
   for (const tab of ["news", "settings"]) {
@@ -1024,12 +1032,12 @@ test("the header on a TV: the same row, Kino's tab strip on the left, «Actualiz
     const head = t.children[0];
     assert.equal(head.type, "row");
     // Tree order is the D-pad's: the tab strip (Left/Right walk its tabs and, past the last, reach the icon in this row).
-    assert.deepEqual(head.children.map((c) => c.key), ["tabs", "updatedAgo", "refreshButton"]);
+    assert.deepEqual(head.children.map((c) => c.key), ["tabs", "refreshButton"]);
     assert.equal(head.children[0].type, "tabs");
     assert.equal(head.children[0].value, tab);
     assert.equal(head.children[0].onChange.event.name, "pickTab");
     assert.ok(!all(head).some((n) => /^tab_/.test(n.key || "")), "no button tabs any more");
-    const button = head.children[2];
+    const button = head.children[1];
     assert.equal(button.variant, "icon", "the circular arrow with Kino's focus ring");
     assert.equal(button.label, "Actualizar ahora");
     assert.ok((head.byClass.expanded || head).style.padding.bottom >= 12, "room under the header on a TV");

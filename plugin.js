@@ -971,8 +971,8 @@ async function step(cache, fetch, settings, clock, budget = budgetFor("phone"), 
     cache.set(KEYS.stories, stories);
     cache.set(KEYS.work, work);
   };
-  if (s.force || !isFresh(feed, key, now, frequencyMs(s.frequencyMin))) {
-    const all = terms.length ? batchQueries(terms, edition) : [{ q: "", terms: [] }];
+  if (terms.length > 0 && (s.force || !isFresh(feed, key, now, frequencyMs(s.frequencyMin)))) {
+    const all = batchQueries(terms, edition);
     const { chosen, next } = pickBatches(all, sameTerms ? feed.cursor : 0, b.batch);
     const lists = [];
     for (const batch of chosen) {
@@ -1058,7 +1058,7 @@ function stored(lang) {
   return {
     edition: editionFor(lang),
     terms: cleanTerms(kino.config.get("terms")),
-    useLibrary: isOn(kino.config.get("useLibrary"), false),
+    useLibrary: isOn(kino.config.get("useLibrary"), true),
     loadMedia: isOn(kino.config.get("loadMedia"), true),
     useAi: isOn(kino.config.get("useAi"), false),
     // On by default: missing (a fresh install, an update from a version without it) counts as on.
@@ -1193,7 +1193,7 @@ var categoryLabel = (c, en) => {
   return en ? x.labelEn : x.label;
 };
 function byline(story, en, now) {
-  const who = story.sample ? en ? "Sample story" : "Noticia de ejemplo" : story.source || "Google News";
+  const who = story.source || "Google News";
   return [who, timeAgo(story.ts, now, en)].filter(Boolean).join(" · ");
 }
 function whyOf(story, en) {
@@ -1219,49 +1219,6 @@ function placeholder(story) {
     children: [{ type: "text", text: initialOf(story.source), style: "h1", color: accentFor(story.source) }]
   };
 }
-
-// src/ui/samples.js
-var SAMPLE = [
-  {
-    id: "1",
-    sample: true,
-    ts: Date.UTC(2026, 9, 1, 12),
-    source: "Kino",
-    cat: "film",
-    term: "Avatar",
-    from: "watched",
-    title: "Noticia de ejemplo: así se ve una película que viste",
-    titleEn: "Sample story: how a movie you watched looks here",
-    desc: "Con «Usar lo que he visto», una película como Avatar busca noticias de «Avatar» película.",
-    descEn: "With “Use what I watched”, a movie like Avatar searches for news about “Avatar” movie."
-  },
-  {
-    id: "2",
-    sample: true,
-    ts: Date.UTC(2026, 8, 24, 12),
-    source: "Kino",
-    cat: "film",
-    term: "Breaking Bad",
-    from: "watched",
-    title: "Noticia de ejemplo: las series que viste traen sus noticias",
-    titleEn: "Sample story: the series you watched bring their news",
-    desc: "Breaking Bad o Stranger Things se buscan como serie, así no aparece una película con el mismo nombre.",
-    descEn: "Breaking Bad or Stranger Things are searched as series, so a movie with the same name does not show up."
-  },
-  {
-    id: "3",
-    sample: true,
-    ts: Date.UTC(2026, 8, 10, 12),
-    source: "Kino",
-    cat: "film",
-    term: "Dragon Ball",
-    from: "term",
-    title: "Noticia de ejemplo: tus propios términos, como «Dragon Ball»",
-    titleEn: "Sample story: your own terms, like “Dragon Ball”",
-    desc: "Agrega términos en Configuración: se buscan tal cual los escribes.",
-    descEn: "Add terms in Settings: they are searched just as you type them."
-  }
-];
 
 // src/ui/cards.js
 var CARD_SPAN = { compact: 12, medium: 6, expanded: 4 };
@@ -1308,7 +1265,7 @@ function storyCard(story, en, now, withPicture = true) {
     ]
   };
 }
-var storiesOf = (feed) => feed && feed.failed ? SAMPLE : feed && feed.items || [];
+var storiesOf = (feed) => feed && feed.items || [];
 function categoryOptions(stories) {
   const counts = {};
   for (const s of stories) counts[s.cat || "other"] = (counts[s.cat || "other"] || 0) + 1;
@@ -1338,18 +1295,10 @@ var REFRESH_BUTTON = {
   variant: "icon",
   onTap: REFRESH_TAP
 };
-function updatedCaption(feed, now, en) {
-  const ago = feed && feed.fetchedAt ? timeAgo(feed.fetchedAt, now, en) : "";
-  const offline = !!(feed && (feed.stale || feed.failed));
-  if (!ago && !offline) return null;
-  const es = offline ? ago ? "Sin conexión · actualizado " + ago : "Sin conexión" : "Actualizado " + ago;
-  const enText = offline ? ago ? "Offline · updated " + ago : "Offline" : "Updated " + ago;
-  return { type: "text", key: "updatedAgo", style: "caption", color: offline ? "warning" : "muted", maxLines: 1, text: es, textEn: enText };
-}
 var HEADER_PADDING = { compact: { end: 8, bottom: 8 }, medium: { start: 8, end: 8, bottom: 8 }, expanded: { start: 16, end: 16, top: 8, bottom: 12 } };
 var BODY_PADDING = { compact: { start: 16, end: 16, top: 12, bottom: 16 }, medium: 16, expanded: { start: 24, end: 24, top: 16, bottom: 24 } };
 function header(tab, feed = null, now = Date.now(), en = false) {
-  const cluster = [updatedCaption(feed, now, en), REFRESH_BUTTON].filter(Boolean);
+  const cluster = [REFRESH_BUTTON];
   return {
     type: "row",
     key: "header",
@@ -1426,8 +1375,8 @@ function newsTab(state, en, now) {
       dismissible: true,
       title: "No se pudo cargar Google Noticias",
       titleEn: "Google News could not be loaded",
-      text: "Mostramos noticias de ejemplo. Revisa tu conexión.",
-      textEn: "Showing sample stories. Check your connection.",
+      text: "Revisa tu conexión.",
+      textEn: "Check your connection.",
       action: { label: "Reintentar", labelEn: "Retry", onTap: REFRESH_TAP }
     });
   }
@@ -1444,7 +1393,16 @@ function newsTab(state, en, now) {
   const stories = storiesOf(feed);
   let body;
   if (!feed) body = [grid(Array.from({ length: 6 }, () => ({ type: "skeleton", shape: "card", span: CARD_SPAN })))];
-  else if (stories.length === 0) {
+  else if (stories.length === 0 && feed.terms === 0) {
+    body = [{
+      type: "emptyState",
+      icon: "info",
+      title: "Nada por aquí",
+      titleEn: "Nothing here",
+      text: "Mira algo en Kino o agrega tus temas en Configuración para ver noticias.",
+      textEn: "Watch something in Kino or add your own topics in Settings to see news."
+    }];
+  } else if (stories.length === 0) {
     body = [{
       type: "emptyState",
       icon: "info",
@@ -1735,8 +1693,6 @@ async function screenEvent({ name, arg, value, state, lang }) {
       return { state: { feed, feedOutdated: false, shown: PAGE, ...unhide(state, ["feedFailed"]) } };
     }
     case "read": {
-      const sample = SAMPLE.find((x) => x.id === arg);
-      if (sample && state.feed && state.feed.failed) return { state: { reading: { ...sample, text: "", loading: false, outlet: null, target: null } }, ui: [{ open: STORY_POPUP }] };
       const story = await readStory(String(arg || ""), lang);
       return story ? { state: { reading: story }, ui: [{ open: STORY_POPUP }] } : null;
     }
@@ -1935,7 +1891,6 @@ export {
   stripHtml,
   termQuery,
   timeAgo,
-  updatedCaption,
   utf8Bytes,
   validRecord,
   validStories,

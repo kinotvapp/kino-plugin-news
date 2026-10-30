@@ -1,6 +1,5 @@
-// The tabs' row with the refresh button and «Actualizado hace...», the paddings, the timers.
+// The tabs' row with the refresh button, the paddings, the timers.
 
-import { timeAgo } from "../util/time.js";
 
 /** The tap that refreshes: show «Actualizando…» at once, then the event that does the work (a press: Kino lets it fetch). */
 export const REFRESH_TAP = { ui: [{ show: "refreshing" }], event: "refreshNow" };
@@ -27,19 +26,6 @@ const REFRESH_BUTTON = {
   variant: "icon", onTap: REFRESH_TAP,
 };
 
-/**
- * «Actualizado hace 12 min», right before the refresh icon: when the news were last fetched (the stored fetchedAt, worked
- * out again on every render). Without a connection (a stale or failed feed) it says so in the warning colour.
- */
-export function updatedCaption(feed, now, en) {
-  const ago = feed && feed.fetchedAt ? timeAgo(feed.fetchedAt, now, en) : "";
-  const offline = !!(feed && (feed.stale || feed.failed));
-  if (!ago && !offline) return null;
-  const es = offline ? (ago ? "Sin conexión · actualizado " + ago : "Sin conexión") : "Actualizado " + ago;
-  const enText = offline ? (ago ? "Offline · updated " + ago : "Offline") : "Updated " + ago;
-  return { type: "text", key: "updatedAgo", style: "caption", color: offline ? "warning" : "muted", maxLines: 1, text: es, textEn: enText };
-}
-
 /** Room under the header row in every size class, so the content scrolling under it never touches it (then a divider). */
 export const HEADER_PADDING = { compact: { end: 8, bottom: 8 }, medium: { start: 8, end: 8, bottom: 8 }, expanded: { start: 16, end: 16, top: 8, bottom: 12 } };
 
@@ -51,12 +37,11 @@ export const HEADER_PADDING = { compact: { end: 8, bottom: 8 }, medium: { start:
 export const BODY_PADDING = { compact: { start: 16, end: 16, top: 12, bottom: 16 }, medium: 16, expanded: { start: 24, end: 24, top: 16, bottom: 24 } };
 
 /**
- * The header, the same on a phone and a TV: Kino's tab strip on the left (it takes the room left), then «Actualizado hace …»
- * and the refresh icon on the right. On a TV Left and Right walk the tabs and, past the last one, reach the refresh icon in
+ * The header, the same on a phone and a TV: Kino's tab strip on the left (it takes the room left), then the refresh icon on the right. On a TV Left and Right walk the tabs and, past the last one, reach the refresh icon in
  * the same row (ui.md, TabBar); Down goes to the content.
  */
 export function header(tab, feed = null, now = Date.now(), en = false) {
-  const cluster = [updatedCaption(feed, now, en), REFRESH_BUTTON].filter(Boolean);
+  const cluster = [REFRESH_BUTTON];
   return {
     type: "row", key: "header", gap: { compact: 8, expanded: 12 }, align: "center", padding: HEADER_PADDING,
     children: [{ type: "tabs", key: "tabs", tabs: TABS, value: tab, onChange: "pickTab", weight: 1 }, ...cluster],

@@ -17,7 +17,7 @@ export function editionFor(lang) {
   return String(lang || "").startsWith("en") ? "us" : "co";
 }
 
-/** The feed's address: the top stories (no q) or a search [q], in [edition] ("co" or "us"; anything else is "co"). */
+/** The feed's address: a search [q] (no q is the front page; the plugin never asks for it), in [edition] ("co" or "us"; anything else is "co"). */
 export function googleNewsUrl({ q = "", edition = "co" } = {}) {
   const e = EDITIONS[edition] || EDITIONS.co;
   const tail = "hl=" + e.hl + "&gl=" + e.gl + "&ceid=" + encodeURIComponent(e.ceid);

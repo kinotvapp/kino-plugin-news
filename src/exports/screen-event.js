@@ -11,7 +11,6 @@ import { addTerm, buildTerms } from "../terms/terms.js";
 import { watchedRoom, watchedTitles } from "../terms/watched.js";
 import { PAGE, STORY_POPUP } from "../ui/cards.js";
 import { MANUAL_AT_KEY } from "../ui/news-tab.js";
-import { SAMPLE } from "../ui/samples.js";
 import { ADD_POPUP, settingsView } from "../ui/settings-tab.js";
 import { httpsOrNull, isObj, str } from "../util/values.js";
 import { MANUAL_GAP_MS, manualRefresh } from "../work/manual.js";
@@ -100,9 +99,7 @@ export async function screenEvent({ name, arg, value, state, lang }) {
       return { state: { feed, feedOutdated: false, shown: PAGE, ...unhide(state, ["feedFailed"]) } };
     }
     case "read": {
-      const sample = SAMPLE.find((x) => x.id === arg);
       // The answer's ui opens the pop-up once the tree with this story is drawn (never with the last one's body).
-      if (sample && state.feed && state.feed.failed) return { state: { reading: { ...sample, text: "", loading: false, outlet: null, target: null } }, ui: [{ open: STORY_POPUP }] };
       const story = await readStory(String(arg || ""), lang);
       return story ? { state: { reading: story }, ui: [{ open: STORY_POPUP }] } : null;
     }

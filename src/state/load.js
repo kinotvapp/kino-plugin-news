@@ -27,7 +27,7 @@ export function stored(lang) {
   return {
     edition: editionFor(lang),
     terms: cleanTerms(kino.config.get("terms")),
-    useLibrary: isOn(kino.config.get("useLibrary"), false),
+    useLibrary: isOn(kino.config.get("useLibrary"), true),
     loadMedia: isOn(kino.config.get("loadMedia"), true),
     useAi: isOn(kino.config.get("useAi"), false),
     // On by default: missing (a fresh install, an update from a version without it) counts as on.

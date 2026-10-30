@@ -10,9 +10,9 @@ export const categoryLabel = (c, en) => {
   return en ? x.labelEn : x.label;
 };
 
-/** The first line of a card: the outlet (or "Noticia de ejemplo") and how long ago. */
+/** The first line of a card: the outlet and how long ago. */
 export function byline(story, en, now) {
-  const who = story.sample ? (en ? "Sample story" : "Noticia de ejemplo") : story.source || "Google News";
+  const who = story.source || "Google News";
   return [who, timeAgo(story.ts, now, en)].filter(Boolean).join(" · ");
 }
 

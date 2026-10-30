@@ -1,9 +1,9 @@
 // Solo noticias (Just News): a Kino plugin with a screen of its own and a background job (apiVersion 14). Two tabs:
 //
 // - Noticias: a Google News feed (news.google.com RSS, no key) drawn as a grid of cards (one per row on a phone, two on a
-//   medium window, three on a TV). It searches the person's own terms and, only when they switch it on, the titles of the
+//   medium window, three on a TV). It searches the person's own terms and, unless they switch it off, the titles of the
 //   movies and series they watched most recently (kino.library), each narrowed to its kind ("Avatar" película). With no term
-//   at all it shows the top stories of the edition that matches Kino's language. Google's feed has no pictures, so (when the
+//   at all it reads nothing and shows an empty state, never Google's front page. Google's feed has no pictures, so (when the
 //   person allows it) the plugin finds each story's page and reads its picture and description from the page's head; a
 //   card without one shows a placeholder with the outlet's initial. A story opens in a pop-up with its text read from the
 //   outlet's page and «Ver noticia», which opens the page in the browser after Kino asks the person.
@@ -15,7 +15,7 @@
 // scheduled job calls it in the background (runOn "preferPhone": the linked phone does it and the result syncs through
 // kino.shared), and the screen calls it when it opens (only fetching what is stale) and on a timer while it is open. The
 // runtime has no XML or HTML parser, so everything is read by the small pure functions below (exported so the kit tests them
-// on saved samples).
+// on saved fixtures).
 //
 // The state lives in Kino, never here: `screen` is a pure view of it, `screenEvent` answers with a patch. Every text the
 // person reads has a Spanish base and an English twin (`textEn`, `labelEn`...), and Kino picks one by its language.
@@ -46,7 +46,7 @@ export { cleanTerms, addTerm, buildTerms, qualifierFor, termQuery, batchQueries,
 export { watchedKey, watchedTitles, validWatched, watchedRoom } from "./terms/watched.js";
 export { CARD_FLUSH, PAGE, PICTURE_CARDS, CARD_DESC_CHARS, categoryOptions } from "./ui/cards.js";
 export { accentFor, initialOf } from "./ui/format.js";
-export { TICK, RELOAD, updatedCaption, HEADER_PADDING, BODY_PADDING, header } from "./ui/header.js";
+export { TICK, RELOAD, HEADER_PADDING, BODY_PADDING, header } from "./ui/header.js";
 export { decodeEntities, stripHtml } from "./util/html.js";
 export { rfcTime, timeAgo } from "./util/time.js";
 export { MANUAL_STEPS, MANUAL_GAP_MS, manualRefresh, refresh } from "./work/manual.js";

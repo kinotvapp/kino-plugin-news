@@ -2,7 +2,6 @@
 
 import { CATEGORIES } from "../categories/categories.js";
 import { byline, pick, placeholder, whyOf } from "./format.js";
-import { SAMPLE } from "./samples.js";
 import { str } from "../util/values.js";
 
 /** A card's share of the twelve columns: one per row on a phone (compact), two on a medium window, three on a TV. */
@@ -53,7 +52,7 @@ export function storyCard(story, en, now, withPicture = true) {
   };
 }
 
-export const storiesOf = (feed) => (feed && feed.failed ? SAMPLE : (feed && feed.items) || []);
+export const storiesOf = (feed) => (feed && feed.items) || [];
 
 /** The category tabs: «Todas» first, then each category that has stories (only those), with its count. */
 export function categoryOptions(stories) {

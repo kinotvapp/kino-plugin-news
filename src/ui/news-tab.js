@@ -9,13 +9,13 @@ export const MANUAL_AT_KEY = "manualRefreshAt";
 
 export function newsTab(state, en, now) {
   const feed = state.feed;
-  // No heading or hint over the cards: the header says when the news were updated, the cards say why they are here.
+  // No heading or hint over the cards: the cards say why they are here.
   const top = [];
   if (feed && feed.failed) {
     top.push({
       type: "banner", key: "feedFailed", role: "error", dismissible: true,
       title: "No se pudo cargar Google Noticias", titleEn: "Google News could not be loaded",
-      text: "Mostramos noticias de ejemplo. Revisa tu conexión.", textEn: "Showing sample stories. Check your connection.",
+      text: "Revisa tu conexión.", textEn: "Check your connection.",
       action: { label: "Reintentar", labelEn: "Retry", onTap: REFRESH_TAP },
     });
   }
@@ -28,7 +28,12 @@ export function newsTab(state, en, now) {
   const stories = storiesOf(feed);
   let body;
   if (!feed) body = [grid(Array.from({ length: 6 }, () => ({ type: "skeleton", shape: "card", span: CARD_SPAN })))];
-  else if (stories.length === 0) {
+  else if (stories.length === 0 && feed.terms === 0) {
+    body = [{
+      type: "emptyState", icon: "info", title: "Nada por aquí", titleEn: "Nothing here",
+      text: "Mira algo en Kino o agrega tus temas en Configuración para ver noticias.", textEn: "Watch something in Kino or add your own topics in Settings to see news.",
+    }];
+  } else if (stories.length === 0) {
     body = [{
       type: "emptyState", icon: "info", title: "Nada por aquí", titleEn: "Nothing here",
       text: "Google Noticias no trajo artículos para tus términos. Prueba con otros en Configuración.", textEn: "Google News returned no articles for your terms. Try others in Settings.",

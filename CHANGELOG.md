@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3
+
+- The news are only about what you watch and your own topics. With no topic and nothing watched, the plugin reads nothing and
+  shows an empty state: it no longer asks Google News for its front page (politics and everything else).
+- **Use what I watched** is on by default.
+- Never sample stories: when Google News cannot be reached and nothing is stored, you get the error banner and an empty state.
+- The «Actualizado hace …» caption in the header is gone (the refresh icon stays).
+
 ## 1.0.2
 
 - `plugin.js` is now generated from `src/`, same behaviour: the code is split into small files by responsibility under `src/` and `npm run build` (esbuild) bundles them into the one file Kino installs. `npm run check:built` proves the shipped file is built from the source.

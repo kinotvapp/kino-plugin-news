@@ -71,10 +71,8 @@ En la pestaña **Configuración** de la pantalla (cada cambio se guarda al insta
 - **Imágenes y textos de los medios** (encendido): imágenes y descripciones de las páginas de los medios. Apagado: solo
   titulares, y ninguna conexión con los medios.
 - **Clasificar con IA** (apagado), y **Clasificar ahora** para ordenar ya las noticias que tienes.
-- **Usar lo que he visto** (apagado) y **Títulos recientes** (1 a 50): los títulos que viste hace poco se vuelven temas.
+- **Usar lo que he visto** (prendido) y **Títulos recientes** (1 a 50): los títulos que viste hace poco se vuelven temas.
   Aparecen como filas que puedes quitar una por una.
-- **Títulos de ejemplo** (apagado): prueba el plugin sin historial (Avatar, Breaking Bad, Dune…, como si los hubieras
-  visto). No se lee nada de tu biblioteca.
 - **Tus términos**: agrega o quita tus propios temas (hasta 50 en total, de 40 caracteres cada uno).
 
 Cada cuánto se actualizan solas las noticias no está en esta pantalla: es la fila del trabajo en **Ajustes ▸ Noticias**
@@ -118,8 +116,8 @@ noticia** se queda con el enlace de Google.
 - **«Espera un momento: acabas de actualizar»**: actualizaste hace menos de 30 segundos.
 - **Sin imágenes**: **Imágenes y textos de los medios** está apagado, o el medio no tiene; la tarjeta muestra entonces la
   inicial del medio.
-- **Solo noticias generales, nada mío**: no tienes términos y **Usar lo que he visto** está apagado (o tu historial está
-  vacío). Agrega un término, o prueba **Títulos de ejemplo**.
+- **Nada por aquí**: no tienes términos y **Usar lo que he visto** está apagado (o tu historial está vacío). El plugin no
+  lee nada entonces, ni la portada de Google ni noticias de ejemplo: agrega un término, o mira algo.
 - **Las categorías no cambian**: **Clasificar con IA** está apagado, o la IA de Kino no está disponible o está apagada en
   la pestaña del plugin en Ajustes (**Dejar que use la IA de texto**); se quedan las que se adivinan en el aparato.
 - **La actualización en segundo plano nunca corre**: enciende el trabajo en Ajustes ▸ Noticias, y revisa ahí **Dejar
@@ -150,7 +148,7 @@ src/
                    read-story.js (lo que muestra la ventana, leído con un toque)
   work/            schedule.js, stages.js, step.js (`step`, la cola de trabajo con presupuesto), manual.js
   state/           load.js: los ajustes, la biblioteca y el almacenamiento como los leen `step` y la pantalla
-  ui/              samples.js, format.js, cards.js, story-popup.js, news-tab.js, settings-tab.js, header.js
+  ui/              format.js, cards.js, story-popup.js, news-tab.js, settings-tab.js, header.js
   exports/         job.js (`job`), screen.js (`screen`), screen-event.js (`screenEvent`)
 ```
 

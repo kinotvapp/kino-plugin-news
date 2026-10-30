@@ -1,7 +1,7 @@
 {
   "id": "news",
   "name": "Solo noticias",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "apiVersion": 14,
   "entry": "plugin.js",
   "description": "Noticias de las películas y series que viste y de tus temas, en tarjetas, desde Google Noticias. Actualización automática e IA opcionales. No oficial: sin relación con Google. (News about what you watched and your own topics, from Google News. Unofficial: not affiliated with Google.)",
@@ -72,7 +72,7 @@
       "label": "Usar lo que he visto",
       "labelEn": "Use what I watched",
       "type": "toggle",
-      "default": false,
+      "default": true,
       "hint": "Los títulos que viste se envían a Google Noticias como búsquedas",
       "hintEn": "The titles you watched are sent to Google News as searches"
     },
@@ -111,6 +111,6 @@
   ],
   "signature": {
     "authorKey": "82b87b938e0a95b142467c815a8823cb54310a13a828c3c4c77b1eda43294ae6",
-    "value": "0249201079e5d50319f1f54dcf589b9bbdade50945551bd0d5f4b4b54409fb6808a8ed44278d91c0720409f3c3dcf09c2e6e4a74efee735189b934888a29ae05"
+    "value": "177989e0119b6d5c4b621214d18e0631ba8d517d3b588275813e1d7530d128e55d50f034f33e777fd521d05ed368a70f8490489a3ce15188d4ea25cab57d020d"
   }
 }

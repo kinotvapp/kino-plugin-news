@@ -67,10 +67,8 @@ On the screen's **Settings** tab (every change is saved at once):
 - **Pictures and texts from the outlets** (on): pictures and descriptions from the outlets' pages. Off: headlines only,
   and no connection to the outlets.
 - **Sort with AI** (off), and **Sort now** to sort the current news right away.
-- **Use what I watched** (off) and **Recent titles** (1 to 50): your recently watched titles become topics. They show as
+- **Use what I watched** (on) and **Recent titles** (1 to 50): your recently watched titles become topics. They show as
   rows you can remove one by one.
-- **Sample titles** (off): try the plugin without a history (Avatar, Breaking Bad, Dune…, as if you had watched them).
-  Nothing is read from your library.
 - **Your terms**: add or remove your own topics (up to 50 in all, 40 characters each).
 
 How often the news refresh by themselves is not on this screen: it is the job's row in Kino's **Settings ▸ News**.
@@ -113,8 +111,8 @@ that is unofficial and may stop working, and then **Open story** keeps Google's 
 - **"Wait a moment: you just refreshed"**: you refreshed less than 30 seconds ago.
 - **No pictures**: **Pictures and texts from the outlets** is off, or the outlet has none; the card then shows the
   outlet's initial.
-- **Only top stories, nothing of mine**: you have no terms and **Use what I watched** is off (or your history is empty).
-  Add a term, or try **Sample titles**.
+- **Nothing here**: you have no terms and **Use what I watched** is off (or your history is empty). The plugin reads
+  nothing then, never Google's front page and never sample stories: add a term, or watch something.
 - **The categories never change**: **Sort with AI** is off, or Kino's AI is unavailable or switched off in the plugin's
   tab in Settings (**Let it use the text AI**); the on-device guesses stay.
 - **The background refresh never runs**: turn the job on in Settings ▸ News, and check **Let it work in the background**
@@ -145,7 +143,7 @@ src/
                    read-story.js (what the pop-up shows, read on a tap)
   work/            schedule.js, stages.js, step.js (`step`, the budgeted work queue), manual.js («Actualizar ahora»)
   state/           load.js: the settings, the library and the storage as `step` and the screen read them
-  ui/              samples.js, format.js, cards.js, story-popup.js, news-tab.js, settings-tab.js, header.js
+  ui/              format.js, cards.js, story-popup.js, news-tab.js, settings-tab.js, header.js
   exports/         job.js (`job`), screen.js (`screen`), screen-event.js (`screenEvent`)
 ```
 
